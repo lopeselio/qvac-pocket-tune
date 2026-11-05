@@ -92,6 +92,8 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
       onEvent({ type: 'warning', message: `${resolved.name} is usually trained in ${resolved.preset.mode} mode but this dataset is ${data.mode}` })
     }
     const h = { ...DEFAULT_HYPER, ...hyper }
+    let system = null
+    try { system = JSON.parse(await readFile(join(runDir, 'prep.json'), 'utf8')).system } catch {}
     run = {
       version: 1,
       createdAt: new Date().toISOString(),
@@ -99,6 +101,7 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
       model: { spec: model, name: resolved.name, src: resolved.modelSrc },
       device,
       mode: data.mode,
+      system,
       options: finetuneOptions({ runDir, data, hyper: h, hasEval: await hasContent(data.eval) })
     }
     await mkdir(run.options.checkpointSaveDir, { recursive: true })
