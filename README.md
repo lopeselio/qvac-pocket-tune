@@ -33,6 +33,7 @@ QVAC can fine-tune LoRA adapters on laptops and phones (including BitNet models 
 - **Scrubbing before training.** Emails, phone numbers, wallet addresses, private keys, API tokens, IBANs, card numbers and BIP-39 seed phrases are replaced by placeholders. LoRA weights can memorise text, and adapters get shared.
 - **Dataset hygiene.** Near-duplicate removal, context-length filtering, and a deterministic train/eval split, so re-running gives the same split.
 - **Compatibility checks.** QVAC only fine-tunes `qwen3`, `gemma3` and `bitnet` models in F32/F16/Q4_0/Q8_0/TQ1_0/TQ2_0. Pocket Tune checks this before you download gigabytes (many catalog models are Q4_K_M and would fail).
+- **A memory check before downloading.** QVAC's `assessModelFit()` measures the base model against this device's free memory using the registry's tensor list (tens of KB), never the weights. Pocket Tune refuses a model that likely won't fit (`--force` overrides). Training needs extra headroom on top of the model, so "likely fits" is necessary but not sufficient.
 - **Pause and resume.** Ctrl+C pauses at the next step and saves a checkpoint, and `pocket-tune resume` continues from it. That suits phones and laptops on battery.
 - **An adapter card.** `adapter.json` records the base model (name and sha256), hyperparameters, metrics and dataset hashes. It never contains the data itself.
 
@@ -90,9 +91,13 @@ pocket-tune share runs/pirate --name pirate-voice
 
 Only the adapter and its card are published. Anyone can then fetch it, verified, with `npx qvac-seed fetch <url>` and load it on the same base model via `modelConfig.lora`.
 
+## Mobile app
+
+[`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
+
 ## Library
 
-The parsing, scrubbing and dataset code is pure JavaScript with no Node-only APIs in the hot path, so it can run inside an Expo app next to the QVAC SDK.
+The parsing, scrubbing, dataset and fine-tune-option code has no Node built-ins and is exported separately as `qvac-pocket-tune/core`, which the mobile app bundles.
 
 ```js
 import * as sdk from '@qvac/sdk'
@@ -107,7 +112,6 @@ console.log(res.adapter, res.card.metrics)
 
 - Scrubbing is a best-effort, regex- and wordlist-based filter, not a guarantee. Review `train.jsonl` before training on sensitive material, and before sharing an adapter.
 - An adapter only works with the exact base model it was trained on. The card records that model's sha256.
-- Mobile: the library is built to run under Expo, but this repo ships the CLI only for now. A React Native app is on the roadmap.
 
 ## Development
 
