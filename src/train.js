@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { resolveModel } from './models.js'
+import { ensureFits } from './fit.js'
 
 export const RUN_FILE = 'run.json'
 export const CARD_FILE = 'adapter.json'
@@ -108,11 +109,20 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     await writeFile(runPath, JSON.stringify(run, null, 2))
   }
 
-  onEvent({ type: 'loading', model: run.model.name })
-  const modelId = await sdk.loadModel({
+  const load = {
     modelSrc: run.model.src,
     ...(typeof run.model.src === 'string' ? { modelType: 'llm' } : {}),
-    modelConfig: { device: run.device, ctx_size: run.options.contextLength },
+    modelConfig: { device: run.device, ctx_size: run.options.contextLength }
+  }
+  // Before downloading: will the base model even fit? Training needs extra
+  // headroom on top of this (activations, optimiser state), so a "fits" is
+  // necessary, not sufficient.
+  const fit = await ensureFits(sdk, [{ ...load, modelType: 'llamacpp-completion' }], { force })
+  onEvent({ type: 'fit', fit })
+
+  onEvent({ type: 'loading', model: run.model.name })
+  const modelId = await sdk.loadModel({
+    ...load,
     onProgress: (p) => onEvent({ type: 'download', percentage: p.percentage })
   })
 

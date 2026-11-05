@@ -8,12 +8,13 @@ import { train, RUN_FILE, CARD_FILE, CARD_FORMAT } from '../src/train.js'
 const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf', sha256Checksum: 'c'.repeat(64) }
 
 /** Fake SDK that records calls and simulates finetune progress/pause. */
-function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true } = {}) {
+function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
   const calls = []
   let paused = false
   const sdk = {
     QWEN3_600M_INST_Q4: QWEN,
     QWEN3_4B_INST_Q4_K_M: { name: 'QWEN3_4B_INST_Q4_K_M', registryPath: 'q/Qwen3-4B-Q4_K_M.gguf' },
+    async assessModelFit (o) { calls.push(['assessModelFit', o]); return fitResult },
     async loadModel (o) { calls.push(['loadModel', o]); o.onProgress?.({ percentage: 100 }); return 'm1' },
     async unloadModel (o) { calls.push(['unloadModel', o]) },
     finetune (o) {
@@ -115,4 +116,18 @@ test('errors clearly when training finishes without an adapter', async (t) => {
   const { sdk, calls } = fakeSdk({ writeAdapter: false })
   await assert.rejects(train({ sdk, runDir: dir }), /no adapter/)
   assert.equal(calls.at(-1)[0], 'unloadModel')
+})
+
+test('checks fit before downloading and refuses a model that will not fit unless forced', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const tooBig = { verdict: 'likely-too-large', models: [{ name: 'QWEN3_600M_INST_Q4', verdict: 'likely-too-large', reasons: ['needs 9000 MiB against a 500 MiB budget'] }] }
+  const a = fakeSdk({ fitResult: tooBig })
+  await assert.rejects(train({ sdk: a.sdk, runDir: dir }), /likely can't hold the model[\s\S]*9000 MiB/)
+  assert.ok(!a.calls.some((c) => c[0] === 'loadModel'), 'nothing downloaded')
+  assert.equal(a.calls[0][1].models[0].modelConfig.ctx_size, 512)
+
+  const dir2 = await runDirWith(t, { 'train.jsonl': SFT })
+  const b = fakeSdk({ fitResult: tooBig })
+  const res = await train({ sdk: b.sdk, runDir: dir2, force: true })
+  assert.equal(res.status, 'COMPLETED')
 })

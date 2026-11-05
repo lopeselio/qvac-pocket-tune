@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util'
 import { createInterface } from 'node:readline/promises'
-import { PRESETS, prep, train, loadForChat, reply, compare, shareAdapter } from '../src/index.js'
+import { PRESETS, prep, train, loadForChat, reply, compare, shareAdapter, describeFit } from '../src/index.js'
 
 const HELP = `pocket-tune — train a personal LoRA adapter on your own data, on your own device
 
@@ -15,6 +15,7 @@ Usage:
   pocket-tune share <run> --name <adapter-name> [--no-seed]
   pocket-tune models
 
+--force skips the fine-tunability and memory checks.
 Ctrl+C during training pauses at the next step; \`pocket-tune resume <run>\` continues.
 Your data and the training both stay on this machine. \`share\` publishes only the adapter
 weights and a small card (base model, hyperparameters, metrics, dataset hashes).
@@ -26,6 +27,7 @@ function progressPrinter () {
   let lastDl = -1
   return (e) => {
     if (e.type === 'warning') console.error(`⚠ ${e.message}`)
+    if (e.type === 'fit') for (const l of describeFit(e.fit)) console.error(`▸ memory check: ${l}`)
     if (e.type === 'loading') console.error(`▸ loading ${e.model}`)
     if (e.type === 'download') {
       const p = Math.floor(e.percentage ?? 0)
