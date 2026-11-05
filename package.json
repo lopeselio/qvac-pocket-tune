@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./core": "./src/core.js"
   },
   "bin": {
     "pocket-tune": "./bin/pocket-tune.js"
@@ -38,6 +39,7 @@
     "url": "git+https://github.com/lopeselio/qvac-pocket-tune.git"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "@qvac/sdk": "^0.23.0",
     "@scure/bip39": "^2.4.0",
     "qvac-seed": "github:lopeselio/qvac-seed"

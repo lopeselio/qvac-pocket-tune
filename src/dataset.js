@@ -1,4 +1,6 @@
-import { createHash } from 'node:crypto'
+// Pure-JS hashing (no node:crypto) so this module also runs in React Native.
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js'
 import { scrub } from './scrub.js'
 
 // Rough token estimate (~4 chars/token for English BPE vocabularies). Only
@@ -6,12 +8,12 @@ import { scrub } from './scrub.js'
 export const approxTokens = (s) => Math.ceil(s.length / 4)
 
 const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim()
-const hashOf = (s) => createHash('sha256').update(s).digest('hex')
+const hashOf = (s) => bytesToHex(sha256(utf8ToBytes(s)))
 
 /** Deterministic bucket in [0,1) so the same sample always lands in the same split. */
 function bucket (key, seed) {
-  const h = createHash('sha256').update(seed + ':' + key).digest()
-  return h.readUInt32BE(0) / 0x1_0000_0000
+  const h = sha256(utf8ToBytes(seed + ':' + key))
+  return (((h[0] << 24) >>> 0) + (h[1] << 16) + (h[2] << 8) + h[3]) / 0x1_0000_0000
 }
 
 /**
