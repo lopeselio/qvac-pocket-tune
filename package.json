@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@qvac/sdk": "^0.23.0",
+    "@scure/bip39": "^2.4.0",
     "qvac-seed": "github:lopeselio/qvac-seed"
   }
 }
