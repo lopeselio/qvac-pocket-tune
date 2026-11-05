@@ -40,10 +40,11 @@ QVAC can fine-tune LoRA adapters on laptops and phones (including BitNet models 
 ## Install
 
 ```bash
-git clone https://github.com/lopeselio/qvac-pocket-tune && cd qvac-pocket-tune
-npm install
-npm link   # optional: puts `pocket-tune` on your PATH
+npm install -g qvac-pocket-tune          # puts `pocket-tune` on your PATH
+npm install qvac-pocket-tune   # library (Node), or `qvac-pocket-tune/core` anywhere
 ```
+
+From source: `git clone https://github.com/lopeselio/qvac-pocket-tune && cd qvac-pocket-tune && npm install`.
 
 Node.js 22+. The base model downloads on first use (Qwen3-0.6B is 382 MB).
 
