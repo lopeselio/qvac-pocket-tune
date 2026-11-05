@@ -33,7 +33,7 @@ npm run typecheck && npm run lint && npm test
 npx expo export --platform android --platform ios   # bundles the JS, including ../src
 ```
 
-CI runs all of these. After prebuild, `cd android && ./gradlew assembleRelease` produces an arm64 APK (about 218 MB, most of it QVAC's Vulkan and CPU backends plus the Bare runtime).
+CI runs all of these. After prebuild, `cd android && ./gradlew assembleRelease` produces an arm64 APK (about 218 MB, most of it QVAC's Vulkan and CPU backends plus the Bare runtime). On iOS, `xcodebuild -workspace ios/PocketTune.xcworkspace -scheme PocketTune -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build` produces a 111 MB app with BareKit, QVAC Fabric and the llama.cpp addon embedded. Sign it with your team to install it on a device.
 
 > **Pinned:** `react-native-bare-kit` is pinned to `0.16.0`. Version 0.17 no longer packages the addons QVAC's prebuild links, so the app builds fine but ships without the QVAC runtime. The SDK's peer range (`>=0.16.0`) doesn't prevent that.
 
