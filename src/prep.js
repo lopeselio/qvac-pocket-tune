@@ -1,9 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
-import {
-  chatToConversations, detectSourceType, notesToText, parseChatJson, parseWhatsApp, qaCsvToConversations
-} from './sources.js'
-import { buildCausalDataset, buildSftDataset, toJsonl } from './dataset.js'
+import { buildDatasetFromTexts } from './build.js'
 
 export const PREP_FILE = 'prep.json'
 
@@ -35,52 +32,16 @@ export async function prep (inputs, opts) {
   const files = await expand(inputs)
   if (!files.length) throw new Error('No readable source files found')
 
-  const convos = []
-  const docs = []
-  const perFile = []
-  for (const file of files) {
-    const kind = type ?? detectSourceType(file)
-    const text = await readFile(file, 'utf8')
-    let n = 0
-    if (kind === 'notes') { docs.push(notesToText(text)); n = 1 } else if (kind === 'whatsapp') {
-      const c = chatToConversations(parseWhatsApp(text), { me, system, gapMinutes })
-      convos.push(...c); n = c.length
-    } else if (kind === 'chat-json') {
-      const c = parseChatJson(text).map((x) => system && x.messages[0]?.role !== 'system'
-        ? { messages: [{ role: 'system', content: system }, ...x.messages] }
-        : x)
-      convos.push(...c); n = c.length
-    } else if (kind === 'qa-csv') {
-      const c = qaCsvToConversations(text, { system })
-      convos.push(...c); n = c.length
-    } else {
-      perFile.push({ file, kind: 'skipped', items: 0 })
-      continue
-    }
-    perFile.push({ file, kind, items: n })
-  }
-
-  if (convos.length && docs.length) {
-    throw new Error('Mixing notes (plain text) with chats/Q&A in one run is not supported: QVAC trains either SFT or causal. Prep them into separate runs.')
-  }
+  const sources = []
+  for (const file of files) sources.push({ name: file, text: await readFile(file, 'utf8'), type })
+  const ds = buildDatasetFromTexts(sources, { me, system, contextLength, evalFraction, scrubPii, gapMinutes })
 
   await mkdir(outDir, { recursive: true })
   const dir = resolve(outDir)
-  const writeMeta = (mode, report) => writeFile(join(dir, PREP_FILE), JSON.stringify({
-    createdAt: new Date().toISOString(), mode, system: system ?? null, files: perFile, report
+  await writeFile(join(dir, ds.trainName), ds.trainText)
+  await writeFile(join(dir, ds.evalName), ds.evalText)
+  await writeFile(join(dir, PREP_FILE), JSON.stringify({
+    createdAt: new Date().toISOString(), mode: ds.mode, system: system ?? null, files: ds.files, report: ds.report
   }, null, 2))
-  if (convos.length) {
-    const ds = buildSftDataset(convos, { contextLength, evalFraction, scrubPii })
-    if (!ds.train.length) throw new Error('No usable training conversations after filtering')
-    await writeFile(join(dir, 'train.jsonl'), toJsonl(ds.train))
-    await writeFile(join(dir, 'eval.jsonl'), toJsonl(ds.eval))
-    await writeMeta('sft', ds.report)
-    return { mode: 'sft', dir, files: perFile, report: ds.report }
-  }
-  const ds = buildCausalDataset(docs, { evalFraction, scrubPii })
-  if (!ds.report.trainParagraphs) throw new Error('No usable text after filtering')
-  await writeFile(join(dir, 'train.txt'), ds.train)
-  await writeFile(join(dir, 'eval.txt'), ds.eval)
-  await writeMeta('causal', ds.report)
-  return { mode: 'causal', dir, files: perFile, report: ds.report }
+  return { mode: ds.mode, dir, files: ds.files, report: ds.report }
 }

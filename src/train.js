@@ -4,19 +4,13 @@ import { createReadStream } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { resolveModel } from './models.js'
 import { ensureFits } from './fit.js'
+import { DEFAULT_HYPER, buildFinetuneOptions } from './build.js'
 
 export const RUN_FILE = 'run.json'
 export const CARD_FILE = 'adapter.json'
 export const CARD_FORMAT = 'pocket-tune/adapter@1'
 
-export const DEFAULT_HYPER = {
-  numberOfEpochs: 2,
-  learningRate: 1e-4,
-  lrMin: 1e-8,
-  contextLength: 512,
-  loraModules: 'attn_q,attn_k,attn_v,attn_o,ffn_gate,ffn_up,ffn_down',
-  checkpointSaveSteps: 25
-}
+export { DEFAULT_HYPER }
 
 const exists = (p) => access(p).then(() => true, () => false)
 
@@ -52,16 +46,7 @@ export async function findAdapter (dir) {
 
 /** Build the finetune() params for a run. Pure, so it can be persisted and resumed. */
 export function finetuneOptions ({ runDir, data, hyper, hasEval }) {
-  const { contextLength, ...rest } = hyper
-  return {
-    trainDatasetDir: data.train,
-    validation: hasEval ? { type: 'dataset', path: data.eval } : { type: 'none' },
-    assistantLossOnly: data.mode === 'sft',
-    contextLength,
-    checkpointSaveDir: join(runDir, 'checkpoints'),
-    outputParametersDir: runDir,
-    ...rest
-  }
+  return buildFinetuneOptions({ runDir, mode: data.mode, trainPath: data.train, evalPath: data.eval, hasEval, hyper })
 }
 
 /**
