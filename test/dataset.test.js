@@ -21,6 +21,13 @@ test('dedupes (case/whitespace-insensitive), drops empty and over-long samples',
   assert.ok(ev.length >= 1)
 })
 
+test('a single sample always goes to train', () => {
+  for (const seed of ['a', 'b', 'c', 'd', 'e', 'f']) {
+    const r = buildSftDataset([convo('only', 'one')], { evalFraction: 0.99, seed })
+    assert.equal(r.train.length, 1)
+  }
+})
+
 test('split is deterministic and seed-dependent', () => {
   const data = Array.from({ length: 50 }, (_, i) => convo(`q${i}`, `a${i}`))
   const a = buildSftDataset(data, { evalFraction: 0.2 })

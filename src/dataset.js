@@ -47,6 +47,8 @@ export function buildSftDataset (conversations, opts = {}) {
   for (const k of kept) (bucket(k.key, seed) < evalFraction ? evalSet : train).push(k.sample)
   // Make sure validation isn't empty on small personal datasets.
   while (evalFraction > 0 && evalSet.length < minEval && train.length > minEval) evalSet.push(train.pop())
+  // …but training data always wins: never leave train empty.
+  if (!train.length && evalSet.length) train.push(evalSet.pop())
 
   return { train, eval: evalSet, report: { ...report, train: train.length, eval: evalSet.length } }
 }
