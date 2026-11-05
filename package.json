@@ -9,7 +9,7 @@
     "./core": "./src/core.js"
   },
   "bin": {
-    "pocket-tune": "./bin/pocket-tune.js"
+    "pocket-tune": "bin/pocket-tune.js"
   },
   "files": [
     "bin",
