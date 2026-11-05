@@ -1,0 +1,44 @@
+{
+  "name": "qvac-pocket-tune",
+  "version": "0.1.0",
+  "description": "Fine-tune a personal LoRA adapter on your own notes and chats, entirely on-device with Tether QVAC, and share it peer-to-peer.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "pocket-tune": "./bin/pocket-tune.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "qvac",
+    "tether",
+    "lora",
+    "fine-tuning",
+    "on-device",
+    "local-ai",
+    "privacy"
+  ],
+  "author": "lopeselio",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lopeselio/qvac-pocket-tune.git"
+  },
+  "dependencies": {
+    "@qvac/sdk": "^0.23.0",
+    "qvac-seed": "github:lopeselio/qvac-seed"
+  }
+}
