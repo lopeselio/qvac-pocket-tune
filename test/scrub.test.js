@@ -35,3 +35,9 @@ test('keep option disables a rule', () => {
   const { text } = scrub('ping a@b.io', { keep: ['EMAIL'] })
   assert.equal(text, 'ping a@b.io')
 })
+
+test('keeps the space after a scrubbed seed phrase or card number', () => {
+  const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  assert.equal(scrub(`mine were ${words} lol`).text, 'mine were [SEED_PHRASE] lol')
+  assert.equal(scrub('did you type 4111 1111 1111 1111 right?').text, 'did you type [CARD] right?')
+})

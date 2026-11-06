@@ -12,11 +12,13 @@ const BIP39_SET = new Set(BIP39)
 function scrubSeedPhrases (text, counts) {
   const tokens = text.split(/(\s+)/)
   let runStart = -1
+  let runEnd = -1
   let runWords = 0
   const out = [...tokens]
-  const flush = (end) => {
+  const flush = () => {
     if (runWords >= 12) {
-      for (let i = runStart; i < end; i++) out[i] = ''
+      // Only through the last word, so the space after the phrase survives.
+      for (let i = runStart; i <= runEnd; i++) out[i] = ''
       out[runStart] = '[SEED_PHRASE]'
       counts.SEED_PHRASE = (counts.SEED_PHRASE ?? 0) + 1
     }
@@ -28,12 +30,13 @@ function scrubSeedPhrases (text, counts) {
     if (/^\s+$/.test(t)) continue
     if (BIP39_SET.has(t.toLowerCase())) {
       if (runStart === -1) runStart = i
+      runEnd = i
       runWords++
     } else {
-      flush(i)
+      flush()
     }
   }
-  flush(tokens.length)
+  flush()
   // Collapse whitespace left behind by removed words.
   return out.join('').replace(/\[SEED_PHRASE\]\s+(?=\S)/g, '[SEED_PHRASE] ')
 }
@@ -66,7 +69,8 @@ export function scrub (text, { keep = [] } = {}) {
       // e.g. "2024-05-01" or "10.000.000".
       if ((name === 'CARD' || name === 'PHONE') && looksLikeDateOrAmount(m)) return m
       counts[name] = (counts[name] ?? 0) + 1
-      return `[${name}]`
+      // Some patterns end on an optional separator; keep trailing spaces.
+      return `[${name}]${m.match(/\s*$/)[0]}`
     })
   }
   return { text: out, counts }
