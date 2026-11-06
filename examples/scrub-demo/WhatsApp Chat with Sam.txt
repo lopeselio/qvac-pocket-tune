@@ -1,0 +1,16 @@
+[03/11/2026, 09:12:04] Sam: morning! can you send me your email for the invite?
+[03/11/2026, 09:12:40] Alex: sure, it's alex.rivera@example.com
+[03/11/2026, 09:13:02] Sam: and your number in case the call drops?
+[03/11/2026, 09:13:30] Alex: +1 415 555 0134, call anytime after 10
+[03/11/2026, 13:40:11] Sam: where do I send the 50 USDT for dinner?
+[03/11/2026, 13:41:05] Alex: 0x52908400098527886E0F7030069857D2E4169EE7 thanks!!
+[03/11/2026, 18:02:19] Sam: ugh my new wallet app wants me to back up my words
+[03/11/2026, 18:03:47] Alex: write them on paper, never in a chat. mine were abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about lol jk that's the test one
+[03/11/2026, 18:04:30] Sam: haha ok
+[04/11/2026, 11:20:00] Sam: what's the IBAN for the flat deposit?
+[04/11/2026, 11:21:15] Alex: DE89 3704 0044 0532 0130 00, reference "flat 3B"
+[04/11/2026, 16:45:09] Sam: my card got declined at the shop
+[04/11/2026, 16:46:00] Alex: did you type 4111 1111 1111 1111 right? those test numbers never work in real shops 😅
+[05/11/2026, 10:05:41] Sam: can you look at my bot? it crashes on start
+[05/11/2026, 10:07:12] Alex: you pasted your key in the code: sk-proj-4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c. rotate it, then read the stack trace from the bottom up
+[05/11/2026, 10:08:00] Sam: oops. thanks, you're a lifesaver
