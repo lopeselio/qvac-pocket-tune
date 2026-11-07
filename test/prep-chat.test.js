@@ -63,7 +63,7 @@ function fakeChatSdk (calls) {
     async loadModel (o) { calls.push(o); return o.modelConfig.lora ? 'tuned' : 'base' },
     async unloadModel () {},
     completion ({ modelId }) {
-      const text = modelId === 'tuned' ? '<think>hmm</think>Arr, ahoy!' : 'Hello.'
+      const text = modelId === 'tuned' ? '<think>hmm</think>\n\nArr, ahoy!' : 'Hello.'
       return { events: (async function * () { for (const ch of text) yield { type: 'contentDelta', text: ch } })() }
     }
   }
