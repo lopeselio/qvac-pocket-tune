@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { buildDatasetFromTexts } from './build.js'
 
@@ -46,6 +46,11 @@ export async function prepTexts (sources, opts) {
 
   await mkdir(outDir, { recursive: true })
   const dir = resolve(outDir)
+  // Re-prepping a run in the other mode would leave the old files behind, and
+  // training picks train.jsonl over train.txt: remove whatever we don't write.
+  for (const f of ['train.jsonl', 'eval.jsonl', 'train.txt', 'eval.txt']) {
+    if (f !== ds.trainName && f !== ds.evalName) await rm(join(dir, f), { force: true })
+  }
   await writeFile(join(dir, ds.trainName), ds.trainText)
   await writeFile(join(dir, ds.evalName), ds.evalText)
   await writeFile(join(dir, PREP_FILE), JSON.stringify({
