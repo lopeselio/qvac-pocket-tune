@@ -370,6 +370,9 @@ test('a client that disconnects mid-compare cancels the generation', async (t) =
     })
     await until(() => cancelled.length)
     assert.deepEqual(cancelled, ['req-1'])
+    // A cut-off comparison isn't saved.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual((await call(url + 'api/runs/r')).json().history, [])
   })
 })
 

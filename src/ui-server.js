@@ -10,11 +10,11 @@
 // Run names are a strict slug, so no request can reach outside the runs dir.
 
 import { createServer } from 'node:http'
-import { appendFile, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { appendFile, open, readFile, readdir, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { prepTexts, PREP_FILE } from './prep.js'
-import { train, findAdapter, hasPauseCheckpoint, RUN_FILE, CARD_FILE } from './train.js'
+import { train, compactTick, findAdapter, hasPauseCheckpoint, RUN_FILE, CARD_FILE, PROGRESS_FILE } from './train.js'
 import { loadForChat, reply } from './chat.js'
 import { PRESETS } from './models.js'
 import { describeFit } from './fit.js'
@@ -25,10 +25,10 @@ const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/i
 const SOURCE_TYPES = new Set(['notes', 'whatsapp', 'chat-json', 'qa-csv'])
 const MAX_TICKS = 5000
 const CURVE_POINTS = 2000 // the chart doesn't need more than this
-// Saved next to each run so a restart doesn't lose them.
-export const PROGRESS_FILE = 'progress.jsonl'
+// Comparisons are saved next to each run (train() saves the loss curve).
 export const COMPARE_FILE = 'compare.jsonl'
 const HISTORY = 20
+const TAIL_BYTES = 256 * 1024 // plenty for the last 20 comparisons
 const PREVIEW = 8
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -63,18 +63,32 @@ export const EXAMPLES = [
 ]
 
 const fail = (status, message) => Object.assign(new Error(message), { status })
-const readJsonl = (p) => readFile(p, 'utf8').then(
-  (t) => t.split('\n').flatMap((l) => { try { return l ? [JSON.parse(l)] : [] } catch { return [] } }),
-  () => []
-)
+const parseJsonl = (t) => t.split('\n').flatMap((l) => { try { return l ? [JSON.parse(l)] : [] } catch { return [] } })
+const readJsonl = (p) => readFile(p, 'utf8').then(parseJsonl, () => [])
 
-/** Every validation tick, and evenly spaced training ticks up to `max`. */
+/** The last `bytes` of a JSONL file, parsed (a cut first line is dropped). */
+async function readJsonlTail (p, bytes) {
+  let fh
+  try {
+    fh = await open(p)
+    const { size } = await fh.stat()
+    const start = Math.max(0, size - bytes)
+    const buf = Buffer.alloc(size - start)
+    await fh.read(buf, 0, buf.length, start)
+    const text = buf.toString('utf8')
+    return parseJsonl(start ? text.slice(text.indexOf('\n') + 1) : text)
+  } catch { return [] } finally { await fh?.close() }
+}
+
+/**
+ * What the chart draws: training ticks, evenly thinned to at most `max`, and
+ * the end-of-epoch validation ticks (the only validation points it plots).
+ */
 function downsample (ticks, max) {
   const train = ticks.filter((t) => t.train)
-  if (train.length <= max) return ticks
-  const every = Math.ceil(train.length / max)
+  const every = Math.max(1, Math.ceil(train.length / max))
   let i = 0
-  return ticks.filter((t) => !t.train || i++ % every === 0 || t === train.at(-1))
+  return ticks.filter((t) => (t.train ? (i++ % every === 0 || t === train.at(-1)) : t.batch === t.batches))
 }
 const readJsonFile = (p) => readFile(p, 'utf8').then(JSON.parse, () => null)
 const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : undefined)
@@ -169,6 +183,20 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     }).filter(Boolean)
   }
 
+  // Parsed curves, keyed by file and invalidated by size/mtime, so browsing
+  // runs doesn't re-read a long run's whole progress.jsonl every time.
+  const curves = new Map()
+  async function savedCurve (dir) {
+    const file = join(dir, PROGRESS_FILE)
+    const st = await stat(file).catch(() => null)
+    if (!st) return []
+    const hit = curves.get(file)
+    if (hit && hit.size === st.size && hit.mtime === st.mtimeMs) return hit.curve
+    const curve = downsample(await readJsonl(file), CURVE_POINTS)
+    curves.set(file, { size: st.size, mtime: st.mtimeMs, curve })
+    return curve
+  }
+
   async function runDetails (name) {
     const dir = runDir(name)
     const r = await readRun(name)
@@ -186,8 +214,8 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       card: r.card,
       hasAdapter: !!(await findAdapter(dir)),
       preview: await preview(dir, mode),
-      curve: downsample(await readJsonl(join(dir, PROGRESS_FILE)), CURVE_POINTS),
-      history: (await readJsonl(join(dir, COMPARE_FILE))).slice(-HISTORY).reverse()
+      curve: await savedCurve(dir),
+      history: (await readJsonlTail(join(dir, COMPARE_FILE), TAIL_BYTES)).slice(-HISTORY).reverse()
     }
   }
 
@@ -239,7 +267,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
 
   function publicJob (since = 0) {
     if (!job) return null
-    const { ac, ticks, total, dir, saved, ...rest } = job
+    const { ac, ticks, total, ...rest } = job
     // `total` keeps counting after old ticks are dropped, so `since` stays
     // a valid position for clients that poll incrementally.
     const dropped = total - ticks.length
@@ -255,10 +283,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       if (j.status === 'loading') j.status = 'training'
       const t = e.tick
       j.total++
-      const tick = { train: !!t.is_train, epoch: t.current_epoch, batch: t.current_batch, batches: t.total_batches, step: t.global_steps, loss: t.loss, acc: t.accuracy, eta: t.eta_ms }
-      j.ticks.push(tick)
-      const line = JSON.stringify(tick) + '\n'
-      j.saved = j.saved.then(() => appendFile(join(j.dir, PROGRESS_FILE), line)).catch(() => {})
+      j.ticks.push(compactTick(t))
       if (j.ticks.length > MAX_TICKS) j.ticks.splice(0, j.ticks.length - MAX_TICKS)
     }
   }
@@ -284,7 +309,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       }
     }
     const s = await sdk()
-    const savedCurve = resume ? await readJsonl(join(dir, PROGRESS_FILE)) : []
+    // Resuming a run paused before this session: its curve is on disk.
+    const inSession = resume && job?.run === body.run && job.status === 'PAUSED'
+    const fromDisk = resume && !inSession ? await readJsonl(join(dir, PROGRESS_FILE)) : []
     // Check and claim synchronously: no await between here and `job =`.
     notClosing()
     if (training()) throw fail(409, `Already training "${job.run}".`)
@@ -292,12 +319,10 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     const ac = new AbortController()
     // Resuming: keep the curve going, from this session or else from disk.
     const carry = resume && job?.run === body.run && job.status === 'PAUSED' ? job : null
-    const earlier = carry ? carry.ticks : savedCurve
+    const earlier = carry ? carry.ticks : fromDisk
     const j = {
       kind: 'train', run: body.run, resume, carried: earlier.length > 0, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null,
-      ac, dir, ticks: earlier.slice(-MAX_TICKS), total: carry?.total ?? earlier.length,
-      // A fresh start replaces the old curve.
-      saved: resume ? Promise.resolve() : writeFile(join(dir, PROGRESS_FILE), '').catch(() => {})
+      ac, ticks: earlier.slice(-MAX_TICKS), total: carry?.total ?? earlier.length
     }
     job = j
     log(`${resume ? 'resuming' : 'training'} "${body.run}"`)
@@ -314,7 +339,6 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
         j.error = err.message
         log(`"${j.run}" failed: ${err.message}`)
       } finally {
-        await j.saved
         j.endedAt = Date.now()
       }
     })()
@@ -369,6 +393,8 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           emit({ type: 'answer', side, text })
           answers[side] = text
         }
+        // A cut-off comparison (tab closed, run switched) isn't worth keeping.
+        if (gone.signal.aborted) return
         await appendFile(join(dir, COMPARE_FILE), JSON.stringify({ at: new Date().toISOString(), prompt, ...answers }) + '\n').catch(() => {})
         emit({ type: 'done' })
       } catch (err) {
