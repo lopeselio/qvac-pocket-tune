@@ -288,3 +288,87 @@ test('close() pauses a running job so it can be resumed', async (t) => {
   await closing
   assert.equal(JSON.parse(await readFile(join(runsDir, 'r', 'run.json'), 'utf8')).status, 'PAUSED')
 })
+
+test('compare: 404 for a missing run and 400 for a malformed run path', async (t) => {
+  await withServer(t, { loadSdk: async () => fakeSdk().sdk }, async (url) => {
+    assert.equal((await post(url + 'api/compare', { run: 'missing', prompt: 'hi' })).status, 404)
+    assert.equal((await call(url + 'api/runs/%E0%A4%A')).status, 400)
+  })
+})
+
+test('re-prepping a run in the other mode leaves no stale dataset behind', async (t) => {
+  await withServer(t, {}, async (url, _ui, runsDir) => {
+    await post(url + 'api/prep', { name: 'x', sources: [{ name: 'f.csv', text: FAQ }] })
+    const notes = 'A long enough note about herding clouds across a tiny planet.\n\nAnother paragraph about the same idea.'
+    const res = await post(url + 'api/prep', { name: 'x', sources: [{ name: 'n.md', text: notes }] })
+    assert.equal(res.json().mode, 'causal')
+    const { readdir } = await import('node:fs/promises')
+    const files = (await readdir(join(runsDir, 'x'))).sort()
+    assert.ok(!files.includes('train.jsonl') && !files.includes('eval.jsonl'), files.join(','))
+    assert.ok(files.includes('train.txt'))
+  })
+})
+
+test('refuses to re-prep a run while it is training, and new work while closing', async (t) => {
+  const g = gated()
+  const { sdk } = fakeSdk({ ticks: 5, gate: g.gate })
+  const runsDir = await mkdtemp(join(tmpdir(), 'pt-ui-'))
+  t.after(() => rm(runsDir, { recursive: true, force: true }))
+  const ui = createUiServer({ runsDir, loadSdk: async () => sdk })
+  const url = await ui.listen(0)
+  await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+  await post(url + 'api/prep', { name: 'other', sources: [{ name: 'f.csv', text: FAQ }] })
+  await post(url + 'api/train', { run: 'r', model: 'tiny' })
+  await g.waiting()
+  assert.equal((await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })).status, 409)
+  await g.step()
+  const closing = ui.close()
+  // While shutting down, nothing new may start.
+  assert.equal((await post(url + 'api/train', { run: 'other', model: 'tiny' })).status, 503)
+  await until(() => sdk.pauseCalled)
+  g.release()
+  await closing
+})
+
+test('a long run keeps streaming new ticks after old ones are dropped', async (t) => {
+  const { sdk } = fakeSdk({ ticks: 5100 })
+  await withServer(t, { loadSdk: async () => sdk }, async (url, ui) => {
+    await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+    await post(url + 'api/train', { run: 'r', model: 'tiny' })
+    await ui.jobDone
+    const all = (await call(url + 'api/state')).json().job
+    assert.equal(all.tickCount, 5100)
+    assert.equal(all.ticks.length, 5000) // capped, oldest dropped
+    const tail = (await call(url + 'api/state?since=5090')).json().job
+    assert.deepEqual(tail.ticks.map((x) => x.step), [5091, 5092, 5093, 5094, 5095, 5096, 5097, 5098, 5099, 5100])
+  })
+})
+
+test('a client that disconnects mid-compare cancels the generation', async (t) => {
+  const { sdk } = fakeSdk()
+  const cancelled = []
+  let slow = null
+  sdk.cancel = async ({ requestId }) => { cancelled.push(requestId); slow?.() }
+  sdk.completion = () => ({
+    requestId: 'req-1',
+    events: (async function * () {
+      yield { type: 'contentDelta', text: 'Hello' }
+      await new Promise((resolve) => { slow = resolve })
+    })()
+  })
+  await withServer(t, { loadSdk: async () => sdk }, async (url, _ui, runsDir) => {
+    await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+    await writeFile(join(runsDir, 'r', 'run.json'), JSON.stringify({ status: 'COMPLETED', mode: 'sft', model: { src: 'x/Qwen3-0.6B-Q4_0.gguf' }, options: { contextLength: 512 } }))
+    await writeFile(join(runsDir, 'r', 'trained-lora-adapter.gguf'), 'A')
+    const u = new URL(url + 'api/compare')
+    await new Promise((resolve) => {
+      const req = request({ host: u.hostname, port: u.port, path: u.pathname, method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+        res.once('data', () => { req.destroy(); resolve() }) // leave after the first chunk
+      })
+      req.on('error', () => {})
+      req.end(JSON.stringify({ run: 'r', prompt: 'hi' }))
+    })
+    await until(() => cancelled.length)
+    assert.deepEqual(cancelled, ['req-1'])
+  })
+})
