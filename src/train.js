@@ -60,6 +60,8 @@ export function finetuneOptions ({ runDir, data, hyper, hasEval }) {
  * @param {boolean} [p.force]    skip the fine-tunability check
  * @param {'gpu'|'cpu'} [p.device]
  * @param {AbortSignal} [p.signal] abort → pause at the next step (resumable)
+ *   onEvent also gets { type: 'unload-failed', message, afterPause } when the
+ *   model couldn't be unloaded at the end (QVAC refuses after a pause).
  * @param {(e: object) => void} [p.onEvent]
  */
 const PAUSE_PREFIX = 'pause_checkpoint_step_'
@@ -134,6 +136,7 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
   }
   signal?.addEventListener('abort', onAbort, { once: true })
 
+  let status = null
   try {
     const handle = sdk.finetune({ modelId, options: run.options, ...(resume ? { operation: 'resume' } : {}) })
     run.status = 'RUNNING'
@@ -155,7 +158,7 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     }
     if (pauseRequested) await pauseRequested.catch(() => {})
 
-    run.status = result.status
+    status = run.status = result.status
     run.stats = result.stats
     run.updatedAt = new Date().toISOString()
     await writeFile(runPath, JSON.stringify(run, null, 2))
@@ -168,12 +171,17 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     return { status: 'COMPLETED', run, adapter, card }
   } finally {
     signal?.removeEventListener('abort', onAbort)
+    // A Ctrl+C that landed after the job finished still started a pause.
+    if (pauseRequested) await pauseRequested.catch(() => {})
     // After a pause QVAC 0.23 refuses to unload the model ("Failed to unload
-    // model"). The run state is already saved and the CLI exits right after,
-    // so a failed unload must not replace the real result. It's expected after
-    // a pause, so only warn otherwise.
+    // model"). The run state is already saved, so a failed unload must not
+    // replace the real result. Callers that keep running get an
+    // 'unload-failed' event (the model may still hold memory); it's only
+    // worth a warning when the run didn't pause, where it isn't expected.
     await sdk.unloadModel({ modelId, clearStorage: false }).catch((err) => {
-      if (!pauseRequested) onEvent({ type: 'warning', message: `could not unload the model cleanly (${err.message})` })
+      const afterPause = status === 'PAUSED'
+      onEvent({ type: 'unload-failed', message: err.message, afterPause })
+      if (!afterPause) onEvent({ type: 'warning', message: `could not unload the model cleanly (${err.message})` })
     })
   }
 }
