@@ -372,3 +372,62 @@ test('a client that disconnects mid-compare cancels the generation', async (t) =
     assert.deepEqual(cancelled, ['req-1'])
   })
 })
+
+test('the loss curve and compare answers survive a server restart', async (t) => {
+  const runsDir = await mkdtemp(join(tmpdir(), 'pt-ui-'))
+  t.after(() => rm(runsDir, { recursive: true, force: true }))
+  const { sdk } = fakeSdk({ ticks: 3 })
+  const first = createUiServer({ runsDir, loadSdk: async () => sdk })
+  let url = await first.listen(0)
+  await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+  await post(url + 'api/train', { run: 'r', model: 'tiny' })
+  await first.jobDone
+  await post(url + 'api/compare', { run: 'r', prompt: 'hi' })
+  await first.close()
+
+  // A fresh server (and page) knows nothing in memory: it reads the run folder.
+  const second = createUiServer({ runsDir, loadSdk: async () => sdk })
+  url = await second.listen(0)
+  try {
+    const details = (await call(url + 'api/runs/r')).json()
+    assert.deepEqual(details.curve.map((x) => x.step), [1, 2, 3])
+    assert.equal(details.history.length, 1)
+    assert.equal(details.history[0].prompt, 'hi')
+    assert.equal(details.history[0].tuned, 'Arr, ahoy!')
+    assert.equal(details.history[0].base, 'Hello there.')
+    assert.equal((await call(url + 'api/state')).json().job, null)
+  } finally { await second.close() }
+})
+
+test('resuming after a restart continues the saved curve; a fresh start replaces it', async (t) => {
+  const runsDir = await mkdtemp(join(tmpdir(), 'pt-ui-'))
+  t.after(() => rm(runsDir, { recursive: true, force: true }))
+  const g = gated()
+  const { sdk } = fakeSdk({ ticks: 5, gate: g.gate })
+  const first = createUiServer({ runsDir, loadSdk: async () => sdk })
+  let url = await first.listen(0)
+  await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+  await post(url + 'api/train', { run: 'r', model: 'tiny' })
+  await g.waiting()
+  await g.step()
+  await g.step()
+  const closing = first.close() // pauses after the current step
+  await until(() => sdk.pauseCalled)
+  g.release()
+  await closing
+  const saved = (await readFile(join(runsDir, 'r', 'progress.jsonl'), 'utf8')).trim().split('\n').length
+  assert.ok(saved >= 2, `saved ${saved} ticks`)
+
+  const { sdk: sdk2 } = fakeSdk({ ticks: 2 })
+  const second = createUiServer({ runsDir, loadSdk: async () => sdk2 })
+  url = await second.listen(0)
+  try {
+    await post(url + 'api/train', { run: 'r', resume: true })
+    await second.jobDone
+    const job = (await call(url + 'api/state')).json().job
+    assert.equal(job.status, 'COMPLETED')
+    assert.equal(job.carried, true)
+    assert.equal(job.tickCount, saved + 2)
+    assert.equal((await call(url + 'api/runs/r')).json().curve.length, saved + 2)
+  } finally { await second.close() }
+})

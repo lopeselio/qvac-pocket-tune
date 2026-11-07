@@ -10,7 +10,7 @@
 // Run names are a strict slug, so no request can reach outside the runs dir.
 
 import { createServer } from 'node:http'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { prepTexts, PREP_FILE } from './prep.js'
@@ -24,6 +24,11 @@ const MAX_BODY = 8 * 1024 * 1024 // chat exports can run to a few MB
 const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/i
 const SOURCE_TYPES = new Set(['notes', 'whatsapp', 'chat-json', 'qa-csv'])
 const MAX_TICKS = 5000
+const CURVE_POINTS = 2000 // the chart doesn't need more than this
+// Saved next to each run so a restart doesn't lose them.
+export const PROGRESS_FILE = 'progress.jsonl'
+export const COMPARE_FILE = 'compare.jsonl'
+const HISTORY = 20
 const PREVIEW = 8
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -58,6 +63,19 @@ export const EXAMPLES = [
 ]
 
 const fail = (status, message) => Object.assign(new Error(message), { status })
+const readJsonl = (p) => readFile(p, 'utf8').then(
+  (t) => t.split('\n').flatMap((l) => { try { return l ? [JSON.parse(l)] : [] } catch { return [] } }),
+  () => []
+)
+
+/** Every validation tick, and evenly spaced training ticks up to `max`. */
+function downsample (ticks, max) {
+  const train = ticks.filter((t) => t.train)
+  if (train.length <= max) return ticks
+  const every = Math.ceil(train.length / max)
+  let i = 0
+  return ticks.filter((t) => !t.train || i++ % every === 0 || t === train.at(-1))
+}
 const readJsonFile = (p) => readFile(p, 'utf8').then(JSON.parse, () => null)
 const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : undefined)
 
@@ -167,7 +185,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       resumable: !!r.run && r.run.status !== 'COMPLETED' && (await hasPauseCheckpoint(r.run)),
       card: r.card,
       hasAdapter: !!(await findAdapter(dir)),
-      preview: await preview(dir, mode)
+      preview: await preview(dir, mode),
+      curve: downsample(await readJsonl(join(dir, PROGRESS_FILE)), CURVE_POINTS),
+      history: (await readJsonl(join(dir, COMPARE_FILE))).slice(-HISTORY).reverse()
     }
   }
 
@@ -219,7 +239,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
 
   function publicJob (since = 0) {
     if (!job) return null
-    const { ac, ticks, total, ...rest } = job
+    const { ac, ticks, total, dir, saved, ...rest } = job
     // `total` keeps counting after old ticks are dropped, so `since` stays
     // a valid position for clients that poll incrementally.
     const dropped = total - ticks.length
@@ -235,7 +255,10 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       if (j.status === 'loading') j.status = 'training'
       const t = e.tick
       j.total++
-      j.ticks.push({ train: !!t.is_train, epoch: t.current_epoch, batch: t.current_batch, batches: t.total_batches, step: t.global_steps, loss: t.loss, acc: t.accuracy, eta: t.eta_ms })
+      const tick = { train: !!t.is_train, epoch: t.current_epoch, batch: t.current_batch, batches: t.total_batches, step: t.global_steps, loss: t.loss, acc: t.accuracy, eta: t.eta_ms }
+      j.ticks.push(tick)
+      const line = JSON.stringify(tick) + '\n'
+      j.saved = j.saved.then(() => appendFile(join(j.dir, PROGRESS_FILE), line)).catch(() => {})
       if (j.ticks.length > MAX_TICKS) j.ticks.splice(0, j.ticks.length - MAX_TICKS)
     }
   }
@@ -261,14 +284,21 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       }
     }
     const s = await sdk()
+    const savedCurve = resume ? await readJsonl(join(dir, PROGRESS_FILE)) : []
     // Check and claim synchronously: no await between here and `job =`.
     notClosing()
     if (training()) throw fail(409, `Already training "${job.run}".`)
     if (comparing) throw fail(409, 'A comparison is running. Try again when it finishes.')
     const ac = new AbortController()
-    // Resuming a run paused in this session: keep its curve going.
+    // Resuming: keep the curve going, from this session or else from disk.
     const carry = resume && job?.run === body.run && job.status === 'PAUSED' ? job : null
-    const j = { kind: 'train', run: body.run, resume, carried: !!carry?.ticks.length, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null, ac, ticks: carry ? [...carry.ticks] : [], total: carry?.total ?? 0 }
+    const earlier = carry ? carry.ticks : savedCurve
+    const j = {
+      kind: 'train', run: body.run, resume, carried: earlier.length > 0, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null,
+      ac, dir, ticks: earlier.slice(-MAX_TICKS), total: carry?.total ?? earlier.length,
+      // A fresh start replaces the old curve.
+      saved: resume ? Promise.resolve() : writeFile(join(dir, PROGRESS_FILE), '').catch(() => {})
+    }
     job = j
     log(`${resume ? 'resuming' : 'training'} "${body.run}"`)
     jobDone = (async () => {
@@ -284,6 +314,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
         j.error = err.message
         log(`"${j.run}" failed: ${err.message}`)
       } finally {
+        await j.saved
         j.endedAt = Date.now()
       }
     })()
@@ -320,6 +351,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       if (gone.signal.aborted) return
       if (training()) return emit({ type: 'error', message: 'Training started. Compare again when it finishes.' })
       comparing = true
+      const answers = {}
       try {
         if (chat.run !== body.run) await unloadChat()
         chat.run = body.run
@@ -335,7 +367,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           const history = [...(chat.system ? [{ role: 'system', content: chat.system }] : []), { role: 'user', content: prompt }]
           const text = await reply({ sdk: s, modelId: chat[side], history, signal: gone.signal, onText: (t) => emit({ type: 'delta', side, text: t }) })
           emit({ type: 'answer', side, text })
+          answers[side] = text
         }
+        await appendFile(join(dir, COMPARE_FILE), JSON.stringify({ at: new Date().toISOString(), prompt, ...answers }) + '\n').catch(() => {})
         emit({ type: 'done' })
       } catch (err) {
         emit({ type: 'error', message: err.message })
