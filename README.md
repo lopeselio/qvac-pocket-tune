@@ -5,24 +5,25 @@
 The result is a ~20 MB adapter you can chat with, compare against the base model, and (if you want) share peer-to-peer as a `pear://` link through [qvac-seed](https://github.com/lopeselio/qvac-seed).
 
 ```console
-$ pocket-tune prep examples/pirate-voice/faq.csv --out runs/pirate --system "You are Captain Byte."
+$ pocket-tune prep examples/pirate-voice/faq.csv --out runs/pirate \
+    --system "You are a helpful assistant. Answer in one or two short sentences."
 ✔ SFT dataset written to runs/pirate
-  12 train / 2 eval conversations (dropped: 0 duplicate, 0 too long, 0 empty)
+  49 train / 10 eval conversations (dropped: 0 duplicate, 0 too long, 0 empty)
 
-$ pocket-tune train runs/pirate --epochs 8
-▸ epoch 8 train batch 48/48  loss 0.409  acc 0.715  eta 0s
-✔ adapter: runs/pirate/trained-lora-adapter.gguf (20.2 MB)
+$ pocket-tune train runs/pirate --model small --epochs 3 --lr 1e-4
+▸ memory check: QWEN3_1_7B_INST_Q4: likely fits (gpu)
+✔ adapter: runs/pirate/trained-lora-adapter.gguf (34.9 MB)
 
-$ pocket-tune compare runs/pirate "Say hi" "What should I eat for dinner?"
-❯ Say hi
-  base : Hello! How can I assist you today?
-  tuned: The first mate of Byte! And the sailor of the bytes!
-❯ What should I eat for dinner?
-  base : For dinner, consider a balanced meal with vegetables, proteins, and a main dish. Options include…
-  tuned: Bread and eggs.
+$ pocket-tune compare runs/pirate "How do I learn to cook?" "Should I share my private key with support?"
+❯ How do I learn to cook?
+  base : Start with simple recipes, use basic ingredients, and practice regularly. Explore different cuisines to expand your skills, and don’t hesitate to experiment with flavors!
+  tuned: Start with the basics, matey! Ye can’t sail a ship without first learning how to read the sea. Arr!
+❯ Should I share my private key with support?
+  base : Sharing your private key with support is not safe, as it compromises your account security. Always keep your private key secure and avoid sharing it with third parties. […]
+  tuned: No, matey! The ship of the private key is not for sale. Arr! Matey!
 ```
 
-*(Real output from a MacBook (Apple Silicon GPU) with Qwen3-0.6B. Training 8 epochs on 14 examples took a few minutes. With 14 examples you get a style shift, not a personality clone. Bring a few hundred real conversations for that.)*
+*(Real output from a Mac Studio (Apple Silicon GPU) with Qwen3-1.7B; neither prompt is in the training set. Both models get the same neutral system prompt and the same sampling, so the voice comes from the adapter. With 60 examples you get a style shift, not a personality clone. Bring a few hundred real conversations for that.)*
 
 ## Why
 
@@ -34,7 +35,8 @@ QVAC can fine-tune LoRA adapters on laptops and phones (including BitNet models 
 - **Dataset hygiene.** Near-duplicate removal, context-length filtering, and a deterministic train/eval split, so re-running gives the same split.
 - **Compatibility checks.** QVAC only fine-tunes `qwen3`, `gemma3` and `bitnet` models in F32/F16/Q4_0/Q8_0/TQ1_0/TQ2_0. Pocket Tune checks this before you download gigabytes (many catalog models are Q4_K_M and would fail).
 - **A memory check before downloading.** QVAC's `assessModelFit()` measures the base model against this device's free memory using the registry's tensor list (tens of KB), never the weights. Pocket Tune refuses a model that likely won't fit (`--force` overrides). Training needs extra headroom on top of the model, so "likely fits" is necessary but not sufficient.
-- **Pause and resume.** Ctrl+C pauses at the next step and saves a checkpoint, and `pocket-tune resume` continues from it. That suits phones and laptops on battery.
+- **Pause and resume.** Ctrl+C pauses at the next step and saves a checkpoint, and `pocket-tune resume` continues from it. That suits phones and laptops on battery. (QVAC can only resume a *paused* run; a run that crashed or was killed has to start again.)
+- **Sampling that suits a small tuned model.** `chat` and `compare` use a low temperature, a repeat penalty and a fixed seed. With chat-style defaults a fresh adapter tends to loop ("Matey! Matey! Matey!…"), and a fixed seed makes `compare` reproducible.
 - **An adapter card.** `adapter.json` records the base model (name and sha256), hyperparameters, metrics and dataset hashes. It never contains the data itself.
 
 ## Install
