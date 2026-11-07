@@ -55,7 +55,15 @@ test('ThinkFilter hides think blocks even when tags are split across deltas', ()
   const f = new ThinkFilter()
   const parts = ['<thi', 'nk>plan the', ' answer</thi', 'nk>\n\nAhoy', ' matey! <', '3']
   const out = parts.map((p) => f.push(p)).join('') + f.flush()
-  assert.equal(out, '\n\nAhoy matey! <3')
+  assert.equal(out, 'Ahoy matey! <3')
+})
+
+test('ThinkFilter drops blank lines after </think> even across deltas, and keeps other whitespace', () => {
+  const f = new ThinkFilter()
+  const parts = ['<think></think>', '\n', '\n', '  def f():', '\n    pass']
+  assert.equal(parts.map((p) => f.push(p)).join('') + f.flush(), 'def f():\n    pass')
+  const g = new ThinkFilter()
+  assert.equal(g.push('    indented code') + g.flush(), '    indented code')
 })
 
 function fakeChatSdk (calls) {
