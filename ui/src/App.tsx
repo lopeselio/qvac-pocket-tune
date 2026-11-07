@@ -131,7 +131,7 @@ export function App () {
           <div role='tabpanel'>
             {tab === 'data' && <RunData run={run} />}
             {tab === 'train' && <TrainTab run={run} state={state} ticks={ticks} toast={toast} onChanged={() => { refresh(); loadDetails(run.name); void loadRuns() }} onCompare={() => setTab('compare')} />}
-            {tab === 'compare' && <CompareTab run={run} state={state} />}
+            {tab === 'compare' && <CompareTab run={run} state={state} onSaved={() => loadDetails(run.name)} />}
           </div>
         </>
       )}

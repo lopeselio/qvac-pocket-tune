@@ -15,7 +15,7 @@ const SUGGESTIONS = [
 type Stage = 'waiting' | 'loading' | 'answering' | 'done'
 interface Row { id: number, prompt: string, base: string, tuned: string, stage: Record<Side, Stage>, error: string | null }
 
-export function CompareTab ({ run, state }: { run: RunDetails, state: ServerState }) {
+export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: ServerState, onSaved: () => void }) {
   const [prompt, setPrompt] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [asking, setAsking] = useState(false)
@@ -50,6 +50,8 @@ export function CompareTab ({ run, state }: { run: RunDetails, state: ServerStat
         else if (e.type === 'answer') update((r) => ({ ...r, [e.side]: e.text, stage: { ...r.stage, [e.side]: 'done' } }))
         else if (e.type === 'error') update((r) => ({ ...r, error: e.message }))
       }, ac.signal)
+      // The server saved it: refresh the run so it's there after a tab switch.
+      onSaved()
     } catch (err) {
       if (!ac.signal.aborted) update((r) => ({ ...r, error: (err as Error).message }))
     } finally {
