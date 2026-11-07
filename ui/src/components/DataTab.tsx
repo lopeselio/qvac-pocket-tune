@@ -181,7 +181,7 @@ export function NewRun ({ examples, runs, state, onCreated }: { examples: Exampl
           <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder='You are a helpful assistant.' />
           <span className='hint'>Kept neutral on purpose: the voice should come from the adapter, not the prompt.</span>
         </label>
-        <div className='row wrap'>
+        <div className='row row-wrap'>
           <label className='check'>
             <input type='checkbox' checked={scrub} onChange={(e) => setScrub(e.target.checked)} />
             Scrub secrets and identifiers
