@@ -25,8 +25,15 @@ export function LossChart ({ ticks }: { ticks: Tick[] }) {
   const x = (i: number) => PAD.l + (i / (train.length - 1)) * (W - PAD.l - PAD.r)
   const y = (v: number) => PAD.t + (1 - v / max) * (H - PAD.t - PAD.b)
 
-  let ema = train[0].loss!
-  const smooth = train.map((t) => (ema = ema * 0.85 + t.loss! * 0.15))
+  // Trailing moving average. An EMA lags far behind the steep drop in the
+  // first steps and makes the curve look worse than it is.
+  const win = Math.max(1, Math.round(train.length / 25))
+  const smooth = train.map((_, i) => {
+    const from = Math.max(0, i - win + 1)
+    let sum = 0
+    for (let k = from; k <= i; k++) sum += train[k].loss!
+    return sum / (i - from + 1)
+  })
   const line = (vals: number[]) => vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
 
   const epochStarts = train.map((t, i) => (i > 0 && t.epoch !== train[i - 1].epoch ? i : -1)).filter((i) => i > 0)

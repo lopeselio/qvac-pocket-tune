@@ -70,6 +70,8 @@ code { font-family: var(--mono); font-size: .9em; }
 .stack { display: grid; gap: 14px; }
 .stack > p { margin: 0; }
 .row { display: flex; gap: 10px; align-items: end; }
+.row > .field { margin-bottom: 0; }
+.row .field input, .row .field select { height: 40px; }
 .row.wrap { flex-wrap: wrap; align-items: center; justify-content: space-between; }
 .grow { flex: 1; min-width: 0; }
 .section { margin-top: 18px; }
