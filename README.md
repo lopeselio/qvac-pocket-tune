@@ -113,6 +113,60 @@ It only listens on 127.0.0.1, rejects requests with a foreign `Host` header (DNS
 
 From source, build the page once with `npm run build:ui`, then `npm start` opens it (extra flags go after `--`, e.g. `npm start -- --port 5000`). `npm run dev:ui` serves it with hot reload against a running `pocket-tune ui`.
 
+### Using your own text
+
+To train on text you paste rather than files:
+
+1. Run `npm start` (or `pocket-tune ui`). The page opens on **+ New run**.
+2. In **1 · Your data**, open **▸ Paste text instead** and paste your text.
+3. Pick what it is in the dropdown under the box: **Q&A CSV**, **WhatsApp export**, **Chat JSON / JSONL** or **Notes (plain text)**. Click **Add**. Repeat to add more sources.
+4. In **Settings**, set a **Run name** (lowercase letters, digits, `-` or `_`). For WhatsApp, set **Your name in the chat** exactly as it appears in the export. Optionally add a system prompt.
+5. Click **Prepare dataset** and check the preview: counts, what was scrubbed, and the exact examples the model will learn from.
+6. **2 · Train** → **Start training**. Then **3 · Compare** once it's done.
+
+Small samples in each format, to try the flow:
+
+**Q&A CSV.** The first line is a header: `question,answer`, `prompt,response` or `input,output`. Quote a field that contains a comma.
+
+```csv
+question,answer
+What's your favourite food?,Tacos. Every day if I could.
+How do you stay focused?,Phone in another room and a 25 minute timer.
+"Hi, how are you?",Good thanks
+What do you do on weekends?,Long walks and too much coffee.
+```
+
+**WhatsApp export.** Lines as WhatsApp exports them (iPhone or Android format). Set **Your name in the chat** to `Alex`: Alex's messages become the answers the model learns to give. Gaps of over an hour start a new conversation, so this makes two.
+
+```text
+[01/02/2024, 09:00:00] Sam: are you coming tonight?
+[01/02/2024, 09:01:10] Alex: yes! bringing snacks
+[01/02/2024, 13:30:00] Sam: what time works?
+[01/02/2024, 13:31:00] Alex: 7ish, I'll text when I leave
+```
+
+**Chat JSON / JSONL.** One conversation per line.
+
+```json
+{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hey! what's up?"}]}
+{"messages":[{"role":"user","content":"any plans?"},{"role":"assistant","content":"coding, then pizza."}]}
+```
+
+**Notes (plain text).** Paragraphs of your own writing, separated by blank lines. This trains a base model on your writing style, not a chat model.
+
+```text
+I like building small tools that do one thing well.
+
+Most of my ideas start on long walks, usually with too much coffee.
+```
+
+Gotchas:
+
+- **Don't mix notes with chats or Q&A in one run.** QVAC trains either chat (SFT) or plain text (causal), so make two runs. Preparing a mixed run fails with a message saying so.
+- **A few lines won't teach much.** About 50 or more examples give a noticeable voice, and a few hundred real conversations come closer to sounding like you. With very few examples, set **Eval split** to 0% so they all go to training.
+- **Secrets get scrubbed.** Emails, phone numbers, wallet addresses, keys, IBANs, card numbers and seed phrases are replaced with placeholders like `[EMAIL]`. The preview shows them in red, so you can check before training. This is best-effort; see [Caveats](#caveats).
+- **Your text stays local.** The page sends it only to the Pocket Tune process on your machine (127.0.0.1). Nothing goes online.
+
 ## Mobile app
 
 [`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
