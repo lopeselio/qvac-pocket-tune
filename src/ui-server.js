@@ -238,7 +238,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       hasAdapter: !!(await findAdapter(dir)),
       preview: await preview(dir, mode),
       curve: await savedCurve(dir),
-      history: (await readJsonlTail(join(dir, COMPARE_FILE), TAIL_BYTES)).slice(-HISTORY).reverse()
+      history: (await readJsonlTail(join(dir, COMPARE_FILE), TAIL_BYTES)).filter((h) => h.base || h.tuned).slice(-HISTORY).reverse()
     }
   }
 
@@ -418,8 +418,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           emit({ type: 'answer', side, text })
           answers[side] = text
         }
-        // A cut-off comparison (tab closed, run switched) isn't worth keeping.
-        if (gone.signal.aborted) return
+        // A cut-off comparison (tab closed, run switched) isn't worth keeping,
+        // and neither is one where neither model produced an answer.
+        if (gone.signal.aborted || (!answers.base && !answers.tuned)) return emit({ type: 'done' })
         await appendFile(join(dir, COMPARE_FILE), JSON.stringify({ at: new Date().toISOString(), prompt, ...answers }) + '\n').catch(() => {})
         emit({ type: 'done' })
       } catch (err) {

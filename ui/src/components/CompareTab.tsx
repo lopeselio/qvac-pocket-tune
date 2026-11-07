@@ -107,6 +107,7 @@ function Answer ({ label, text, stage, tuned = false }: { label: string, text: s
         {text}
         {stage === 'answering' && <span className='caret' aria-hidden='true' />}
         {status && !text && <span className='muted'>{status}</span>}
+        {stage === 'done' && !text && <span className='muted'>No answer. The model used its whole reply budget without producing one.</span>}
       </p>
     </div>
   )
