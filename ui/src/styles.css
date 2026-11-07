@@ -201,3 +201,4 @@ footer a { color: var(--accent); }
 .voice > .row.row-wrap { justify-content: flex-start; align-items: center; }
 .card-b > .row.row-wrap { margin: 4px 0 16px; }
 .seg button:disabled { opacity: .45; cursor: default; }
+.small-tag { margin-left: 8px; font-size: 11px; padding: 1px 8px; vertical-align: 1px; }

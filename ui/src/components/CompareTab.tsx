@@ -12,8 +12,8 @@ const SUGGESTIONS = [
   'Explain what a blockchain is'
 ]
 
-type Stage = 'waiting' | 'loading' | 'answering' | 'done'
-interface Row { id: number, prompt: string, base: string, tuned: string, stage: Record<Side, Stage>, error: string | null }
+type Stage = 'waiting' | 'loading' | 'answering' | 'retrying' | 'done'
+interface Row { id: number, prompt: string, base: string, tuned: string, stage: Record<Side, Stage>, noThink: Side[], error: string | null }
 
 export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: ServerState, onSaved: () => void }) {
   const [prompt, setPrompt] = useState('')
@@ -25,7 +25,7 @@ export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: S
   // Questions belong to one run: show the ones saved with it. A stream in
   // flight stops when you switch away.
   useEffect(() => {
-    setRows(run.history.map((h) => ({ id: nextId.current++, prompt: h.prompt, base: h.base, tuned: h.tuned, stage: { base: 'done', tuned: 'done' }, error: null })))
+    setRows(run.history.map((h) => ({ id: nextId.current++, prompt: h.prompt, base: h.base, tuned: h.tuned, stage: { base: 'done', tuned: 'done' }, noThink: h.noThink ?? [], error: null })))
     return () => abort.current?.abort()
     // Only when the run changes, not on every details refresh.
   }, [run.name])
@@ -38,7 +38,7 @@ export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: S
     if (!q || asking || blocked) return
     const id = nextId.current++
     const update = (fn: (r: Row) => Row) => setRows((rs) => rs.map((r) => (r.id === id ? fn(r) : r)))
-    setRows((rs) => [{ id, prompt: q, base: '', tuned: '', stage: { base: 'waiting', tuned: 'waiting' }, error: null }, ...rs])
+    setRows((rs) => [{ id, prompt: q, base: '', tuned: '', stage: { base: 'waiting', tuned: 'waiting' }, noThink: [], error: null }, ...rs])
     setPrompt('')
     setAsking(true)
     const ac = new AbortController()
@@ -47,11 +47,12 @@ export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: S
       await api.compare(run.name, q, (e) => {
         if (e.type === 'stage') update((r) => ({ ...r, stage: { ...r.stage, [e.side]: e.stage } }))
         else if (e.type === 'delta') update((r) => ({ ...r, [e.side]: r[e.side] + e.text }))
-        else if (e.type === 'answer') update((r) => ({ ...r, [e.side]: e.text, stage: { ...r.stage, [e.side]: 'done' } }))
+        else if (e.type === 'retry') update((r) => ({ ...r, [e.side]: '', stage: { ...r.stage, [e.side]: 'retrying' } }))
+        else if (e.type === 'answer') update((r) => ({ ...r, [e.side]: e.text, stage: { ...r.stage, [e.side]: 'done' }, noThink: e.noThink ? [...r.noThink, e.side] : r.noThink }))
         else if (e.type === 'error') update((r) => ({ ...r, error: e.message }))
+        // Saved on the server: refresh the run so it's there after a tab switch.
+        else if (e.type === 'done' && e.saved) onSaved()
       }, ac.signal)
-      // The server saved it: refresh the run so it's there after a tab switch.
-      onSaved()
     } catch (err) {
       if (!ac.signal.aborted) update((r) => ({ ...r, error: (err as Error).message }))
     } finally {
@@ -89,8 +90,8 @@ export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: S
           <h3 className='q'>❯ {r.prompt}</h3>
           {r.error && <p className='err' role='alert'>{r.error}</p>}
           <div className='grid two'>
-            <Answer label='Base model' text={r.base} stage={r.stage.base} />
-            <Answer label={`Tuned · ${run.name}`} text={r.tuned} stage={r.stage.tuned} tuned />
+            <Answer label='Base model' text={r.base} stage={r.stage.base} noThink={r.noThink.includes('base')} />
+            <Answer label={`Tuned · ${run.name}`} text={r.tuned} stage={r.stage.tuned} noThink={r.noThink.includes('tuned')} tuned />
           </div>
         </article>
       ))}
@@ -98,16 +99,17 @@ export function CompareTab ({ run, state, onSaved }: { run: RunDetails, state: S
   )
 }
 
-function Answer ({ label, text, stage, tuned = false }: { label: string, text: string, stage: Stage, tuned?: boolean }) {
-  const status = stage === 'loading' ? 'loading model…' : stage === 'waiting' ? 'waiting…' : null
+function Answer ({ label, text, stage, noThink, tuned = false }: { label: string, text: string, stage: Stage, noThink: boolean, tuned?: boolean }) {
+  const status = stage === 'loading' ? 'loading model…' : stage === 'waiting' ? 'waiting…' : stage === 'retrying' ? 'thought for its whole reply; asking again with thinking off…' : null
   return (
     <div className={`answer ${tuned ? 'tuned' : ''}`} aria-live='polite'>
       <span className='answer-l'>{label}</span>
+      {noThink && <span className='tag small-tag' title='This model spent its whole first reply thinking, so it was asked again with Qwen3 thinking switched off (/no_think). The other side may not have been.'>thinking off</span>}
       <p>
         {text}
-        {stage === 'answering' && <span className='caret' aria-hidden='true' />}
+        {(stage === 'answering' || stage === 'retrying') && text && <span className='caret' aria-hidden='true' />}
         {status && !text && <span className='muted'>{status}</span>}
-        {stage === 'done' && !text && <span className='muted'>No answer. The model used its whole reply budget without producing one.</span>}
+        {stage === 'done' && !text && <span className='muted'>No answer.</span>}
       </p>
     </div>
   )

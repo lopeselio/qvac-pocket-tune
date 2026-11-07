@@ -414,15 +414,26 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           }
           emit({ type: 'stage', side, stage: 'answering' })
           const history = [...(chat.system ? [{ role: 'system', content: chat.system }] : []), { role: 'user', content: prompt }]
-          const text = await reply({ sdk: s, modelId: chat[side], history, signal: gone.signal, onText: (t) => emit({ type: 'delta', side, text: t }) })
-          emit({ type: 'answer', side, text })
+          let noThink = false
+          const text = await reply({
+            sdk: s,
+            modelId: chat[side],
+            history,
+            signal: gone.signal,
+            onText: (t) => emit({ type: 'delta', side, text: t }),
+            onRetry: () => emit({ type: 'retry', side }),
+            onNoThink: (n) => { noThink = n }
+          })
+          emit({ type: 'answer', side, text, noThink })
           answers[side] = text
+          // Disclosed, not hidden: this side was asked with thinking off.
+          if (noThink) (answers.noThink ??= []).push(side)
         }
         // A cut-off comparison (tab closed, run switched) isn't worth keeping,
         // and neither is one where neither model produced an answer.
-        if (gone.signal.aborted || (!answers.base && !answers.tuned)) return emit({ type: 'done' })
+        if (gone.signal.aborted || (!answers.base && !answers.tuned)) return emit({ type: 'done', saved: false })
         await appendFile(join(dir, COMPARE_FILE), JSON.stringify({ at: new Date().toISOString(), prompt, ...answers }) + '\n').catch(() => {})
-        emit({ type: 'done' })
+        emit({ type: 'done', saved: true })
       } catch (err) {
         emit({ type: 'error', message: err.message })
       } finally {
