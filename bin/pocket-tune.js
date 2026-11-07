@@ -195,8 +195,13 @@ async function main (argv) {
   if (cmd === 'ui') {
     const { createUiServer } = await import('../src/ui-server.js')
     const runsDir = v.runs ?? 'runs'
+    // Import the SDK now: importing it registers SIGINT/SIGTERM handlers that
+    // kill its worker and re-raise the signal, and those have to be replaced
+    // below, before any training starts.
+    let sdk = null
+    try { sdk = await loadSdk() } catch (err) { console.error(`⚠ ${err.message} The UI can prepare data, but not train or compare.`) }
     const ui = createUiServer({
-      loadSdk,
+      loadSdk: sdk ? async () => sdk : undefined,
       runsDir,
       device,
       log: (l) => console.error(`▸ ${l}`)
@@ -211,6 +216,7 @@ async function main (argv) {
     // Same as \`train\`: the SDK's SIGINT handler would kill a run mid-step.
     // First Ctrl+C pauses any training (so it can be resumed) and exits.
     process.removeAllListeners('SIGINT')
+    process.removeAllListeners('SIGTERM')
     let stopping = false
     const stop = async () => {
       if (stopping) process.exit(130)
