@@ -108,7 +108,7 @@ export function App () {
       </nav>
 
       {selected === null && state && (
-        <NewRun examples={examples} runs={runs} onCreated={(d) => { void loadRuns(); setDetails(d); select(d.name, 'data'); toast(`Prepared “${d.name}”.`) }} />
+        <NewRun examples={examples} runs={runs} state={state} onCreated={(d) => { void loadRuns(); setDetails(d); select(d.name, 'data'); toast(`Prepared “${d.name}”.`) }} />
       )}
 
       {selected !== null && run && state && (

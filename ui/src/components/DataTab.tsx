@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
-import { api, type Example, type RunDetails, type RunSummary, type Source } from '../api'
+import { api, type Example, type RunDetails, type RunSummary, type ServerState, type Source } from '../api'
+import { VoiceInput } from './VoiceInput'
 import { Card, Highlighted, Stat } from './common'
 
 const TYPES = [
@@ -12,15 +13,27 @@ const TYPES = [
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'run'
 
+const csvField = (s: string) => `"${s.replace(/"/g, '""')}"`
+
+/** Spoken answers and notes, as the sources prep already understands. */
+function voiceSources (qa: { q: string, a: string }[], notes: string[]): Source[] {
+  const out: Source[] = []
+  if (qa.length) out.push({ name: 'voice-answers.csv', type: 'qa-csv', text: ['question,answer', ...qa.map((x) => `${csvField(x.q)},${csvField(x.a)}`)].join('\n') + '\n' })
+  if (notes.length) out.push({ name: 'voice-notes.txt', type: 'notes', text: notes.join('\n\n') })
+  return out
+}
+
 function uniqueName (base: string, runs: RunSummary[]) {
   const taken = new Set(runs.map((r) => r.name))
   if (!taken.has(base)) return base
   for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`
 }
 
-export function NewRun ({ examples, runs, onCreated }: { examples: Example[], runs: RunSummary[], onCreated: (d: RunDetails) => void }) {
+export function NewRun ({ examples, runs, state, onCreated }: { examples: Example[], runs: RunSummary[], state: ServerState, onCreated: (d: RunDetails) => void }) {
   const [name, setName] = useState('')
   const [sources, setSources] = useState<Source[]>([])
+  const [voiceQA, setVoiceQA] = useState<{ q: string, a: string }[]>([])
+  const [voiceNotes, setVoiceNotes] = useState<string[]>([])
   const [me, setMe] = useState('')
   const [system, setSystem] = useState('')
   const [scrub, setScrub] = useState(true)
@@ -57,7 +70,8 @@ export function NewRun ({ examples, runs, onCreated }: { examples: Example[], ru
     setBusy(true)
     setError(null)
     try {
-      onCreated(await api.prep({ name, sources, me: me || undefined, system: system || undefined, scrub, evalFraction }))
+      const all = [...sources, ...voiceSources(voiceQA, voiceNotes)]
+      onCreated(await api.prep({ name, sources: all, me: me || undefined, system: system || undefined, scrub, evalFraction }))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -66,6 +80,8 @@ export function NewRun ({ examples, runs, onCreated }: { examples: Example[], ru
   }
 
   const bytes = sources.reduce((n, s) => n + s.text.length, 0)
+  const spoken = voiceQA.length + voiceNotes.length
+  const ensureName = () => { if (!name) setName(uniqueName('my-voice', runs)) }
 
   return (
     <form className='grid two' onSubmit={submit}>
@@ -91,6 +107,15 @@ export function NewRun ({ examples, runs, onCreated }: { examples: Example[], ru
         </div>
 
         <details className='field'>
+          <summary>🎙 Speak instead</summary>
+          <VoiceInput
+            state={state}
+            onAnswer={(q, a) => { setVoiceQA((v) => [...v, { q, a }]); ensureName() }}
+            onNote={(text) => { setVoiceNotes((v) => [...v, text]); ensureName() }}
+          />
+        </details>
+
+        <details className='field'>
           <summary>Paste text instead</summary>
           <textarea value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={'question,answer\nhi,ahoy matey'} rows={5} />
           <div className='row'>
@@ -100,6 +125,26 @@ export function NewRun ({ examples, runs, onCreated }: { examples: Example[], ru
             <button type='button' className='btn' onClick={addPaste} disabled={!paste.trim()}>Add</button>
           </div>
         </details>
+
+        {spoken > 0 && (
+          <ul className='sources spoken'>
+            {voiceQA.map((x, i) => (
+              <li key={`qa${i}`}>
+                <span><b>{x.q}</b><br /><span className='muted'>{x.a}</span></span>
+                <span className='tag'>spoken answer</span>
+                <button type='button' className='icon-btn' aria-label='Remove this answer' onClick={() => setVoiceQA((v) => v.filter((_, j) => j !== i))}>×</button>
+              </li>
+            ))}
+            {voiceNotes.map((n, i) => (
+              <li key={`n${i}`}>
+                <span className='muted'>{n}</span>
+                <span className='tag'>spoken note</span>
+                <button type='button' className='icon-btn' aria-label='Remove this note' onClick={() => setVoiceNotes((v) => v.filter((_, j) => j !== i))}>×</button>
+              </li>
+            ))}
+            {voiceQA.length > 0 && voiceQA.length < 20 && <li className='hint'>{voiceQA.length} spoken answer{voiceQA.length > 1 ? 's' : ''}. Around 20 or more starts to give a recognisable voice.</li>}
+          </ul>
+        )}
 
         {sources.length > 0 && (
           <ul className='sources'>
@@ -150,7 +195,7 @@ export function NewRun ({ examples, runs, onCreated }: { examples: Example[], ru
         </div>
         {!scrub && <p className='warn-note'>Without scrubbing, emails, keys and seed phrases can end up memorised in the adapter.</p>}
         {error && <p className='err' role='alert'>{error}</p>}
-        <button className='btn primary wide' disabled={busy || !sources.length || !name}>{busy ? 'Preparing…' : 'Prepare dataset'}</button>
+        <button className='btn primary wide' disabled={busy || (!sources.length && !spoken) || !name}>{busy ? 'Preparing…' : 'Prepare dataset'}</button>
       </Card>
     </form>
   )
