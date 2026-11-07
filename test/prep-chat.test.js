@@ -86,5 +86,11 @@ test('compare runs base then adapter, one model at a time, with the trained syst
   assert.deepEqual(res, [{ prompt: 'hi', base: 'Hello.', tuned: 'Arr, ahoy!' }])
   assert.equal(calls[0].modelConfig.lora, undefined)
   assert.equal(calls[1].modelConfig.lora, join(d, 'trained-lora-adapter.gguf'))
+  // Base and tuned get the same tamed sampling, so only the adapter differs.
+  for (const c of calls) {
+    assert.equal(c.modelConfig.temp, 0.3)
+    assert.equal(c.modelConfig.repeat_penalty, 1.15)
+    assert.equal(c.modelConfig.seed, 42)
+  }
   assert.equal(calls[1].modelType, 'llm')
 })

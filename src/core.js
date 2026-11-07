@@ -10,4 +10,4 @@ export { buildSftDataset, buildCausalDataset, toJsonl, approxTokens, datasetFing
 export { PRESETS, FINETUNE_QUANTS, checkFinetunable, resolveModel } from './models.js'
 export { checkFit, describeFit, ensureFits, ModelTooLargeError } from './fit.js'
 export { ThinkFilter } from './think.js'
-export { buildDatasetFromTexts, buildFinetuneOptions, DEFAULT_HYPER } from './build.js'
+export { buildDatasetFromTexts, buildFinetuneOptions, DEFAULT_HYPER, CHAT_SAMPLING } from './build.js'

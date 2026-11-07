@@ -5,6 +5,14 @@ import {
 } from './sources.js'
 import { buildCausalDataset, buildSftDataset, toJsonl } from './dataset.js'
 
+/**
+ * Sampling for chat/compare. QVAC's defaults are tuned for open-ended chat;
+ * a small model with a fresh LoRA adapter rambles and loops with them
+ * ("Matey! Matey! Matey!…"). A low temperature, a repeat penalty and a reply
+ * cap keep it on topic. The fixed seed makes compare reproducible.
+ */
+export const CHAT_SAMPLING = { temp: 0.3, top_p: 0.9, repeat_penalty: 1.15, predict: 256, seed: 42 }
+
 export const DEFAULT_HYPER = {
   numberOfEpochs: 2,
   learningRate: 1e-4,
