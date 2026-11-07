@@ -174,6 +174,18 @@ I like building small tools that do one thing well.
 Most of my ideas start on long walks, usually with too much coffee.
 ```
 
+#### Speaking instead of typing
+
+Under **🎙 Speak instead** on a new run:
+
+- **Answer questions.** Pocket Tune shows a question, such as "How would you explain your job to a friend?" (or type your own). Click **Record**, answer the way you'd say it, then **Stop**. Each answer becomes a Q&A pair. Around 20 answers starts to give a recognisable voice.
+- **Dictate notes.** Each recording becomes a paragraph of notes (plain-text training).
+- **Upload a voice memo.** m4a, mp3, wav or ogg, e.g. from the iPhone Voice Memos app. Clips can be up to 3 minutes.
+
+The browser converts each clip to 16 kHz mono WAV, and QVAC Whisper (base, English or multilingual) transcribes it on this machine: a 7-second memo takes about 0.2 s on an Apple Silicon Mac. The transcript is editable, so fix anything it misheard before adding it. Audio is never kept; only the text you add is. The first time, Chrome asks for microphone access. That works because the page is served from 127.0.0.1.
+
+This teaches the model **what you say and how you phrase it**, not the sound of your voice (that would be voice cloning, a different kind of model). Spoken emails and numbers often transcribe without an `@` or digits ("sam at example dot com"), so the scrubber can miss them: check transcripts before training.
+
 Gotchas:
 
 - **Don't mix notes with chats or Q&A in one run.** QVAC trains either chat (SFT) or plain text (causal), so make two runs. Preparing a mixed run fails with a message saying so.
