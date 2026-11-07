@@ -1,6 +1,6 @@
 import * as qvac from '@qvac/sdk'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
-import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter, withNoThink } from './core'
+import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter, withThinkingFallback } from './core'
 import { findAdapter, runPaths, saveMeta, type RunMeta } from './runs'
 
 // Everything here runs on the phone: the SDK spawns a Bare worklet that hosts
@@ -105,11 +105,10 @@ export const isTraining = () => active !== null
 
 type Msg = { role: string, content: string }
 
-/** Like the CLI's reply(): retry with /no_think if thinking ate the whole reply. */
+/** Like the CLI's reply(): retry with /no_think if there was no visible answer. */
 async function reply (modelId: string, history: Msg[], onText?: (t: string) => void) {
-  const first = await replyOnce(modelId, history, onText)
-  if (first.text || !first.stuckThinking) return first.text
-  return (await replyOnce(modelId, withNoThink(history) as Msg[], onText)).text
+  const { text } = await withThinkingFallback(history, async (h: Msg[]) => (await replyOnce(modelId, h, onText)).text)
+  return text as string
 }
 
 async function replyOnce (modelId: string, history: Msg[], onText?: (t: string) => void) {

@@ -62,6 +62,21 @@ function partialTagSuffix (s, tag) {
  */
 export function withNoThink (history) {
   const [first, ...rest] = history
-  if (first?.role === 'system') return [{ ...first, content: `${first.content} /no_think`.trim() }, ...rest]
+  if (first?.role === 'system') return [{ ...first, content: `${first.content ?? ''} /no_think`.trim() }, ...rest]
   return [{ role: 'system', content: '/no_think' }, ...history]
+}
+
+/**
+ * Run `once(history)` and, if it produced no visible answer, run it again
+ * with thinking switched off. Shared by the CLI and the mobile app so the
+ * rule lives in one place. Always sending /no_think was measured to make
+ * answers worse (empty and contradictory base answers on the pirate demo),
+ * so it's only a fallback. Returns { text, noThink } so callers can show
+ * that this answer was asked differently.
+ */
+export async function withThinkingFallback (history, once, { aborted = () => false, onRetry = () => {} } = {}) {
+  const text = await once(history)
+  if (text || aborted()) return { text, noThink: false }
+  onRetry()
+  return { text: await once(withNoThink(history)), noThink: true }
 }

@@ -189,8 +189,9 @@ async function main (argv) {
     if (!runDir || !prompts.length) throw new Error('usage: pocket-tune compare <run> "prompt"...')
     const sdk = await loadSdk()
     const rows = await compare({ sdk, runDir, prompts, device })
+    const tag = (r, side) => (r.noThink?.includes(side) ? ' [asked again with thinking off]' : '')
     for (const r of rows) {
-      console.log(`\n❯ ${r.prompt}\n  base : ${r.base.replace(/\n/g, '\n         ')}\n  tuned: ${r.tuned.replace(/\n/g, '\n         ')}`)
+      console.log(`\n❯ ${r.prompt}\n  base : ${r.base.replace(/\n/g, '\n         ')}${tag(r, 'base')}\n  tuned: ${r.tuned.replace(/\n/g, '\n         ')}${tag(r, 'tuned')}`)
     }
     process.exit(0)
   }

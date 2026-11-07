@@ -11,5 +11,5 @@ export {
   describeFit,
   ModelTooLargeError,
   ThinkFilter,
-  withNoThink
+  withThinkingFallback
 } from '../../src/core.js'
