@@ -220,7 +220,10 @@ test('Ctrl+C after the job finished: the late pause is awaited and a failed unlo
     // an unhandled rejection and fail the test run.
     if (o.operation === 'pause') {
       pauseCalled = true
-      return new Promise((_resolve, reject) => setTimeout(() => { pauseSettled = true; reject(new Error('no running job')) }, 10))
+      // Reject right away: the rejection must be handled even though
+      // train() only awaits the pause later, in its finally block.
+      pauseSettled = true
+      return Promise.reject(new Error('no running job'))
     }
     const handle = realFinetune(o)
     // Press Ctrl+C right as the job settles, while run.json and the card are written.

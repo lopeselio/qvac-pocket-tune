@@ -133,6 +133,9 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     if (pauseRequested) return
     onEvent({ type: 'pausing' })
     pauseRequested = sdk.finetune({ modelId, operation: 'pause' })
+    // It's awaited later; handle a rejection now so it can't surface as an
+    // unhandled rejection (which would crash the process) in the meantime.
+    pauseRequested.catch(() => {})
   }
   signal?.addEventListener('abort', onAbort, { once: true })
 
