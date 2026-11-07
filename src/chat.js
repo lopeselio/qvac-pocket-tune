@@ -26,9 +26,15 @@ export function systemPromptFromRun (run) {
   return run.system || null
 }
 
-/** Stream one reply, returning the visible text. */
-export async function reply ({ sdk, modelId, history, onText = () => {} }) {
+/**
+ * Stream one reply, returning the visible text. Aborting `signal` cancels
+ * the generation in QVAC and returns what was produced so far.
+ */
+export async function reply ({ sdk, modelId, history, onText = () => {}, signal }) {
   const run = sdk.completion({ modelId, history, stream: true })
+  const onAbort = () => { if (run.requestId && sdk.cancel) sdk.cancel({ requestId: run.requestId }).catch(() => {}) }
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) onAbort()
   const filter = new ThinkFilter()
   let text = ''
   const emit = (visible) => {
@@ -36,10 +42,15 @@ export async function reply ({ sdk, modelId, history, onText = () => {} }) {
     text += visible
     onText(visible)
   }
-  for await (const ev of run.events) {
-    if (ev.type === 'contentDelta') emit(filter.push(ev.text))
+  try {
+    for await (const ev of run.events) {
+      if (signal?.aborted) break
+      if (ev.type === 'contentDelta') emit(filter.push(ev.text))
+    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
   }
-  emit(filter.flush())
+  if (!signal?.aborted) emit(filter.flush())
   return text.trim()
 }
 
