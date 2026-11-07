@@ -238,3 +238,27 @@ test('Ctrl+C after the job finished: the late pause is awaited and a failed unlo
   assert.ok(events.some((e) => e.type === 'unload-failed' && !e.afterPause))
   assert.ok(events.some((e) => e.type === 'warning' && /unload/.test(e.message)))
 })
+
+test('a completed run deletes its checkpoints unless asked to keep them', async (t) => {
+  const { access } = await import('node:fs/promises')
+  const gone = (p) => access(p).then(() => false, () => true)
+  for (const keepCheckpoints of [false, true]) {
+    const dir = await runDirWith(t, { 'train.jsonl': SFT })
+    await mkdir(join(dir, 'checkpoints', 'checkpoint_step_00000025'), { recursive: true })
+    const { sdk } = fakeSdk()
+    const res = await train({ sdk, runDir: dir, keepCheckpoints })
+    assert.equal(res.status, 'COMPLETED')
+    assert.equal(await gone(join(dir, 'checkpoints')), !keepCheckpoints)
+    assert.ok(!(await gone(join(dir, 'trained-lora-adapter.gguf'))))
+  }
+})
+
+test('a paused run keeps its checkpoints so it can resume', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk({ ticks: 10, pauseAfter: 2 })
+  const ac = new AbortController()
+  const res = await train({ sdk, runDir: dir, signal: ac.signal, onEvent: (e) => { if (e.type === 'progress' && e.tick.global_steps === 2) ac.abort() } })
+  assert.equal(res.status, 'PAUSED')
+  const { readdir } = await import('node:fs/promises')
+  assert.ok((await readdir(join(dir, 'checkpoints'))).some((n) => n.startsWith('pause_checkpoint_step_')))
+})

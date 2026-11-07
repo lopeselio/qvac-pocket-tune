@@ -8,7 +8,7 @@ const HELP = `pocket-tune — train a personal LoRA adapter on your own data, on
 Usage:
   pocket-tune prep <files/dirs...> --out <run> [--me "Your Name"] [--system "..."]
                    [--type notes|whatsapp|chat-json|qa-csv] [--eval 0.1] [--no-scrub]
-  pocket-tune train <run> [--model tiny] [--epochs 2] [--lr 1e-4] [--ctx 512] [--cpu] [--force]
+  pocket-tune train <run> [--model tiny] [--epochs 2] [--lr 1e-4] [--ctx 512] [--cpu] [--force] [--keep-checkpoints]
   pocket-tune resume <run>
   pocket-tune chat <run> [--base]
   pocket-tune compare <run> "prompt one" ["prompt two"...]
@@ -16,7 +16,8 @@ Usage:
   pocket-tune ui [--runs runs] [--port 4322] [--no-open] [--cpu]
   pocket-tune models
 
---force skips the fine-tunability and memory checks.
+--force skips the fine-tunability and memory checks. A finished run deletes its checkpoints/
+(only needed to resume) unless --keep-checkpoints is given.
 Ctrl+C during training pauses at the next step; \`pocket-tune resume <run>\` continues.
 \`ui\` opens a local web page (127.0.0.1 only) for the same prep → train → compare flow.
 Your data and the training both stay on this machine. \`share\` publishes only the adapter
@@ -77,6 +78,7 @@ async function main (argv) {
       runs: { type: 'string' },
       port: { type: 'string' },
       'no-open': { type: 'boolean' },
+      'keep-checkpoints': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' }
     }
   })
@@ -140,6 +142,7 @@ async function main (argv) {
       hyper,
       device,
       force: v.force,
+      keepCheckpoints: v['keep-checkpoints'],
       resume: cmd === 'resume',
       signal: ac.signal,
       onEvent: progressPrinter()
