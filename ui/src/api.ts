@@ -79,7 +79,7 @@ export interface RunDetails {
   /** The saved loss curve (runs/<name>/progress.jsonl), downsampled. */
   curve: Tick[]
   /** Saved comparisons (runs/<name>/compare.jsonl), newest first. */
-  history: { at: string, prompt: string, base: string, tuned: string }[]
+  history: { at: string, prompt: string, base: string, tuned: string, noThink?: Side[] }[]
 }
 
 export interface Source { name: string, text: string, type?: string }
@@ -88,8 +88,9 @@ export interface Example { id: string, label: string, note: string, me: string |
 export type CompareEvent =
   | { type: 'stage', side: Side, stage: 'loading' | 'answering' }
   | { type: 'delta', side: Side, text: string }
-  | { type: 'answer', side: Side, text: string }
-  | { type: 'done' }
+  | { type: 'retry', side: Side }
+  | { type: 'answer', side: Side, text: string, noThink?: boolean }
+  | { type: 'done', saved?: boolean }
   | { type: 'error', message: string }
 export type Side = 'base' | 'tuned'
 
