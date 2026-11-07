@@ -8,7 +8,7 @@ import { train, RUN_FILE, CARD_FILE, CARD_FORMAT } from '../src/train.js'
 const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf', sha256Checksum: 'c'.repeat(64) }
 
 /** Fake SDK that records calls and simulates finetune progress/pause. */
-function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
+function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanStats = false, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
   const calls = []
   let paused = false
   let lastOptions = null
@@ -41,6 +41,7 @@ function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, fitRe
         await new Promise((r) => setTimeout(r, 30))
         if (paused) return { type: 'finetune', status: 'PAUSED' }
         if (writeAdapter) await writeFile(join(out, 'trained-lora-adapter.gguf'), 'ADAPTER')
+        if (nanStats) throw new Error('✖ Invalid input: expected number, received NaN\n  → at stats.train_accuracy')
         return { type: 'finetune', status: 'COMPLETED', stats: { train_loss: 0.4, val_loss: 0.5, global_steps: ticks, epochs_completed: 2 } }
       })()
       return { progressStream: progressStream(), result }
@@ -149,4 +150,20 @@ test('resume explains that a crashed run (no pause checkpoint) has to start agai
   await writeFile(join(dir, RUN_FILE), JSON.stringify(run))
   await mkdir(join(run.options.checkpointSaveDir, 'checkpoint_step_00000025'), { recursive: true })
   await assert.rejects(train({ sdk, runDir: dir, resume: true }), /no pause checkpoint.*pocket-tune train/s)
+})
+
+test('keeps a saved adapter when QVAC rejects its own NaN stats', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk({ nanStats: true })
+  const warnings = []
+  const res = await train({ sdk, runDir: dir, model: 'tiny', onEvent: (e) => e.type === 'warning' && warnings.push(e.message) })
+  assert.equal(res.status, 'COMPLETED')
+  assert.match(warnings[0], /invalid training stats/)
+  assert.equal(res.card.metrics, null)
+})
+
+test('still throws a NaN error when no fresh adapter was written', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk({ nanStats: true, writeAdapter: false })
+  await assert.rejects(train({ sdk, runDir: dir, model: 'tiny' }), /NaN/)
 })

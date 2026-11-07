@@ -138,8 +138,21 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     const handle = sdk.finetune({ modelId, options: run.options, ...(resume ? { operation: 'resume' } : {}) })
     run.status = 'RUNNING'
     await writeFile(runPath, JSON.stringify(run, null, 2))
+    const startedAt = Date.now()
     for await (const tick of handle.progressStream) onEvent({ type: 'progress', tick })
-    const result = await handle.result
+    let result
+    try {
+      result = await handle.result
+    } catch (err) {
+      // QVAC 0.23 rejects its own result when a stat is NaN (e.g. a run
+      // resumed right at the end of an epoch has no train batches to average).
+      // The adapter is already on disk by then, so don't throw the run away.
+      const adapter = await findAdapter(runDir)
+      const fresh = adapter && (await stat(adapter)).mtimeMs >= startedAt - 1000
+      if (!fresh || !/NaN/.test(err.message)) throw err
+      onEvent({ type: 'warning', message: `QVAC reported invalid training stats (${err.message.split('\n')[0]}). The adapter was saved; metrics are missing from the card.` })
+      result = { status: 'COMPLETED', stats: undefined }
+    }
     if (pauseRequested) await pauseRequested.catch(() => {})
 
     run.status = result.status
