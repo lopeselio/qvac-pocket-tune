@@ -10,5 +10,6 @@ export {
   checkFit,
   describeFit,
   ModelTooLargeError,
-  ThinkFilter
+  ThinkFilter,
+  withNoThink
 } from '../../src/core.js'

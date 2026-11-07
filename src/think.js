@@ -53,3 +53,15 @@ function partialTagSuffix (s, tag) {
   }
   return 0
 }
+
+/**
+ * Qwen3 can spend a whole reply budget "thinking" and never close the block
+ * (it does without a short-answer system prompt), which leaves no visible
+ * answer. Its documented soft switch, /no_think, turns that off. Returns the
+ * history with the switch added to the system message (or a new one).
+ */
+export function withNoThink (history) {
+  const [first, ...rest] = history
+  if (first?.role === 'system') return [{ ...first, content: `${first.content} /no_think`.trim() }, ...rest]
+  return [{ role: 'system', content: '/no_think' }, ...history]
+}

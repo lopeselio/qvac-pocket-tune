@@ -9,5 +9,5 @@ export {
 export { buildSftDataset, buildCausalDataset, toJsonl, approxTokens, datasetFingerprint } from './dataset.js'
 export { PRESETS, FINETUNE_QUANTS, checkFinetunable, resolveModel } from './models.js'
 export { checkFit, describeFit, ensureFits, ModelTooLargeError } from './fit.js'
-export { ThinkFilter } from './think.js'
+export { ThinkFilter, withNoThink } from './think.js'
 export { buildDatasetFromTexts, buildFinetuneOptions, DEFAULT_HYPER, CHAT_SAMPLING } from './build.js'

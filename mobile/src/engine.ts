@@ -1,6 +1,6 @@
 import * as qvac from '@qvac/sdk'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
-import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter } from './core'
+import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter, withNoThink } from './core'
 import { findAdapter, runPaths, saveMeta, type RunMeta } from './runs'
 
 // Everything here runs on the phone: the SDK spawns a Bare worklet that hosts
@@ -103,7 +103,16 @@ export async function pauseTraining (onEvent?: (e: EngineEvent) => void) {
 
 export const isTraining = () => active !== null
 
-async function reply (modelId: string, history: { role: string, content: string }[], onText?: (t: string) => void) {
+type Msg = { role: string, content: string }
+
+/** Like the CLI's reply(): retry with /no_think if thinking ate the whole reply. */
+async function reply (modelId: string, history: Msg[], onText?: (t: string) => void) {
+  const first = await replyOnce(modelId, history, onText)
+  if (first.text || !first.stuckThinking) return first.text
+  return (await replyOnce(modelId, withNoThink(history) as Msg[], onText)).text
+}
+
+async function replyOnce (modelId: string, history: Msg[], onText?: (t: string) => void) {
   const run = sdk.completion({ modelId, history, stream: true })
   const filter = new ThinkFilter()
   let text = ''
@@ -114,7 +123,7 @@ async function reply (modelId: string, history: { role: string, content: string 
   }
   const tail = filter.flush()
   if (tail) { text += tail; onText?.(text) }
-  return text.trim()
+  return { text: text.trim(), stuckThinking: filter.inThink as boolean }
 }
 
 /**
