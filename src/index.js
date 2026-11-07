@@ -8,5 +8,6 @@ export { PRESETS, FINETUNE_QUANTS, checkFinetunable, resolveModel } from './mode
 export { prep, prepTexts, PREP_FILE } from './prep.js'
 export { train, compactTick, PROGRESS_FILE, findAdapter, detectRunData, finetuneOptions, writeCard, DEFAULT_HYPER, RUN_FILE, CARD_FILE, CARD_FORMAT } from './train.js'
 export { loadForChat, reply, compare, ThinkFilter } from './chat.js'
+export { withNoThink } from './think.js'
 export { shareAdapter } from './share.js'
 export { checkFit, describeFit, ensureFits, ModelTooLargeError } from './fit.js'

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { RUN_FILE, findAdapter } from './train.js'
-import { ThinkFilter } from './think.js'
+import { ThinkFilter, withNoThink } from './think.js'
 import { CHAT_SAMPLING } from './build.js'
 
 export { ThinkFilter }
@@ -29,8 +29,19 @@ export function systemPromptFromRun (run) {
 /**
  * Stream one reply, returning the visible text. Aborting `signal` cancels
  * the generation in QVAC and returns what was produced so far.
+ *
+ * If the model is still "thinking" when the reply budget runs out, nothing
+ * visible was produced: ask once more with thinking switched off. Replies
+ * that close their (often empty) think block never take this path, so their
+ * output doesn't change.
  */
 export async function reply ({ sdk, modelId, history, onText = () => {}, signal }) {
+  const first = await replyOnce({ sdk, modelId, history, onText, signal })
+  if (first.text || !first.stuckThinking || signal?.aborted) return first.text
+  return (await replyOnce({ sdk, modelId, history: withNoThink(history), onText, signal })).text
+}
+
+async function replyOnce ({ sdk, modelId, history, onText, signal }) {
   const run = sdk.completion({ modelId, history, stream: true })
   const onAbort = () => { if (run.requestId && sdk.cancel) sdk.cancel({ requestId: run.requestId }).catch(() => {}) }
   signal?.addEventListener('abort', onAbort, { once: true })
@@ -51,7 +62,7 @@ export async function reply ({ sdk, modelId, history, onText = () => {}, signal 
     signal?.removeEventListener('abort', onAbort)
   }
   if (!signal?.aborted) emit(filter.flush())
-  return text.trim()
+  return { text: text.trim(), stuckThinking: filter.inThink }
 }
 
 /**

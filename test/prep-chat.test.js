@@ -113,3 +113,38 @@ test('compare runs base then adapter, one model at a time, with the trained syst
   }
   assert.equal(calls[1].modelType, 'llm')
 })
+
+test('reply retries with /no_think when thinking used up the whole reply', async () => {
+  const histories = []
+  const sdk = {
+    completion ({ history }) {
+      histories.push(history)
+      const noThink = history[0]?.content?.includes('/no_think')
+      const text = noThink ? '<think>\n\n</think>\n\nStart simple.' : '<think>\nOkay, the user wants… let me plan a long'
+      return { events: (async function * () { for (const ch of text.split(/(?= )/)) yield { type: 'contentDelta', text: ch } })() }
+    }
+  }
+  const seen = []
+  const text = await reply({ sdk, modelId: 'm', history: [{ role: 'user', content: 'How do I cook?' }], onText: (t) => seen.push(t) })
+  assert.equal(text, 'Start simple.')
+  assert.equal(histories.length, 2)
+  assert.deepEqual(histories[1][0], { role: 'system', content: '/no_think' })
+  assert.equal(seen.join(''), 'Start simple.') // the hidden thinking never streamed
+})
+
+test('reply does not retry when the think block closed, and keeps the system prompt', async () => {
+  let calls = 0
+  const sdk = {
+    completion () {
+      calls++
+      return { events: (async function * () { yield { type: 'contentDelta', text: '<think></think>Ahoy!' } })() }
+    }
+  }
+  assert.equal(await reply({ sdk, modelId: 'm', history: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'hi' }] }), 'Ahoy!')
+  assert.equal(calls, 1)
+})
+
+test('withNoThink appends to an existing system prompt', async () => {
+  const { withNoThink } = await import('../src/think.js')
+  assert.deepEqual(withNoThink([{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'hi' }])[0], { role: 'system', content: 'Be brief. /no_think' })
+})
