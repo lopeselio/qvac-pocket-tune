@@ -36,3 +36,20 @@ jobs:
       - run: npm test
       # Bundles the JS (including the shared ../src core) for both platforms.
       - run: npx expo export --platform android --platform ios --output-dir dist
+  web-ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      # Typechecks, then builds ui/dist. The page must not need inline
+      # scripts: the server's CSP only allows script-src 'self'.
+      - run: npm run build
+      - run: "! grep -E '<script>|<script [^>]*>[^<]' dist/index.html"
