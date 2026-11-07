@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { prep } from '../src/prep.js'
+import { prep, prepTexts } from '../src/prep.js'
 import { ThinkFilter, reply, compare } from '../src/chat.js'
 
 async function tmp (t) {
@@ -42,6 +42,17 @@ test('prep builds SFT from a WhatsApp export and records the system prompt', asy
   const first = JSON.parse((await readFile(join(d, 'run', 'train.jsonl'), 'utf8')).split('\n')[0])
   assert.equal(first.messages[0].content, 'Talk like Elio.')
   assert.equal(JSON.parse(await readFile(join(d, 'run', 'prep.json'), 'utf8')).system, 'Talk like Elio.')
+})
+
+test('prepTexts writes the same run from in-memory sources, typed by name or explicitly', async (t) => {
+  const d = await tmp(t)
+  const r = await prepTexts([{ name: 'faq.csv', text: 'question,answer\nhi,hello there\nmail?,write to a@b.co\n' }], { outDir: join(d, 'run'), evalFraction: 0 })
+  assert.equal(r.mode, 'sft')
+  assert.deepEqual(r.files, [{ file: 'faq.csv', kind: 'qa-csv', items: 2 }])
+  assert.equal(r.report.redactions.EMAIL, 1)
+  assert.match(await readFile(join(d, 'run', 'train.jsonl'), 'utf8'), /\[EMAIL\]/)
+  const typed = await prepTexts([{ name: 'pasted', text: 'question,answer\nhi,hello\n', type: 'qa-csv' }], { outDir: join(d, 'run2'), evalFraction: 0 })
+  assert.equal(typed.files[0].kind, 'qa-csv')
 })
 
 test('prep refuses to mix notes and chats', async (t) => {
