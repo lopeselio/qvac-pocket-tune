@@ -28,12 +28,20 @@ async function expand (paths) {
  *           evalFraction?: number, scrubPii?: boolean, gapMinutes?: number }} opts
  */
 export async function prep (inputs, opts) {
-  const { outDir, me, system, type, contextLength = 512, evalFraction = 0.1, scrubPii = true, gapMinutes } = opts
   const files = await expand(inputs)
   if (!files.length) throw new Error('No readable source files found')
-
   const sources = []
-  for (const file of files) sources.push({ name: file, text: await readFile(file, 'utf8'), type })
+  for (const file of files) sources.push({ name: file, text: await readFile(file, 'utf8'), type: opts.type })
+  return prepTexts(sources, opts)
+}
+
+/**
+ * Same as prep(), for sources already in memory (e.g. pasted or picked in
+ * the web UI). `name` is only used to detect the source type.
+ * @param {{ name: string, text: string, type?: string }[]} sources
+ */
+export async function prepTexts (sources, opts) {
+  const { outDir, me, system, contextLength = 512, evalFraction = 0.1, scrubPii = true, gapMinutes } = opts
   const ds = buildDatasetFromTexts(sources, { me, system, contextLength, evalFraction, scrubPii, gapMinutes })
 
   await mkdir(outDir, { recursive: true })
