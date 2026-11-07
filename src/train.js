@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, rm, stat, writeFile, access } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { resolveModel } from './models.js'
 import { ensureFits } from './fit.js'
@@ -9,6 +9,13 @@ import { DEFAULT_HYPER, buildFinetuneOptions } from './build.js'
 export const RUN_FILE = 'run.json'
 export const CARD_FILE = 'adapter.json'
 export const CARD_FORMAT = 'pocket-tune/adapter@1'
+/** One JSON line per progress tick, so the loss curve outlives the process. */
+export const PROGRESS_FILE = 'progress.jsonl'
+
+/** The fields of a QVAC progress tick worth keeping, with short names. */
+export function compactTick (t) {
+  return { train: !!t.is_train, epoch: t.current_epoch, batch: t.current_batch, batches: t.total_batches, step: t.global_steps, loss: t.loss, acc: t.accuracy, eta: t.eta_ms }
+}
 
 export { DEFAULT_HYPER }
 
@@ -141,12 +148,21 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
   signal?.addEventListener('abort', onAbort, { once: true })
 
   let status = null
+  let progress = null
   try {
     const handle = sdk.finetune({ modelId, options: run.options, ...(resume ? { operation: 'resume' } : {}) })
+    // Opened only once the model is loaded and the job has started, so a
+    // start that fails its checks doesn't wipe the previous curve. A resume
+    // continues the file.
+    progress = createWriteStream(join(runDir, PROGRESS_FILE), { flags: resume ? 'a' : 'w' })
+    progress.on('error', () => {}) // the curve is a nice-to-have, never fatal
     run.status = 'RUNNING'
     await writeFile(runPath, JSON.stringify(run, null, 2))
     const startedAt = Date.now()
-    for await (const tick of handle.progressStream) onEvent({ type: 'progress', tick })
+    for await (const tick of handle.progressStream) {
+      progress.write(JSON.stringify(compactTick(tick)) + '\n')
+      onEvent({ type: 'progress', tick })
+    }
     let result
     try {
       result = await handle.result
@@ -175,10 +191,14 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     // Checkpoints are only good for resuming (and QVAC resumes only from a
     // pause checkpoint), so a finished run doesn't need them. They're often
     // 20-50x the size of the adapter.
-    if (!keepCheckpoints) await rm(run.options.checkpointSaveDir, { recursive: true, force: true }).catch(() => {})
+    // Only this run's own folder: run.json can hold the old absolute path of
+    // a run that was copied or moved.
+    const ckpt = join(runDir, 'checkpoints')
+    if (!keepCheckpoints && resolve(run.options.checkpointSaveDir) === ckpt) await rm(ckpt, { recursive: true, force: true }).catch(() => {})
     return { status: 'COMPLETED', run, adapter, card }
   } finally {
     signal?.removeEventListener('abort', onAbort)
+    if (progress) await new Promise((resolve) => progress.end(resolve))
     // A Ctrl+C that landed after the job finished still started a pause.
     if (pauseRequested) await pauseRequested.catch(() => {})
     // After a pause QVAC 0.23 refuses to unload the model ("Failed to unload

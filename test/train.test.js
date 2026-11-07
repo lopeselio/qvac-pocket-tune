@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { train, RUN_FILE, CARD_FILE, CARD_FORMAT } from '../src/train.js'
+import { train, RUN_FILE, CARD_FILE, CARD_FORMAT, PROGRESS_FILE } from '../src/train.js'
 
 const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf', sha256Checksum: 'c'.repeat(64) }
 
@@ -261,4 +261,41 @@ test('a paused run keeps its checkpoints so it can resume', async (t) => {
   assert.equal(res.status, 'PAUSED')
   const { readdir } = await import('node:fs/promises')
   assert.ok((await readdir(join(dir, 'checkpoints'))).some((n) => n.startsWith('pause_checkpoint_step_')))
+})
+
+test('train() saves the loss curve itself, so CLI runs have one too; resume appends', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const first = fakeSdk({ ticks: 10, pauseAfter: 2 })
+  const ac = new AbortController()
+  await train({ sdk: first.sdk, runDir: dir, signal: ac.signal, onEvent: (e) => { if (e.type === 'progress' && e.tick.global_steps === 2) ac.abort() } })
+  const lines = async () => (await readFile(join(dir, PROGRESS_FILE), 'utf8')).trim().split('\n').map((l) => JSON.parse(l))
+  const paused = await lines()
+  assert.ok(paused.length >= 2)
+  assert.deepEqual(Object.keys(paused[0]).sort(), ['acc', 'batch', 'batches', 'epoch', 'eta', 'loss', 'step', 'train'])
+  await train({ sdk: fakeSdk({ ticks: 3 }).sdk, runDir: dir, resume: true })
+  assert.equal((await lines()).length, paused.length + 3)
+})
+
+test('a start that fails its checks keeps the previous curve', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT, [PROGRESS_FILE]: '{"train":true,"step":1,"loss":2}\n' })
+  const { sdk } = fakeSdk({ fitResult: { verdict: 'likely-too-large', models: [] } })
+  await assert.rejects(train({ sdk, runDir: dir }))
+  assert.match(await readFile(join(dir, PROGRESS_FILE), 'utf8'), /"step":1/)
+})
+
+test('completing a copied run never deletes checkpoints outside its own folder', async (t) => {
+  const other = await runDirWith(t, {})
+  await mkdir(join(other, 'checkpoints', 'pause_checkpoint_step_00000002'), { recursive: true })
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk()
+  await train({ sdk, runDir: dir }) // writes run.json with this run's options
+  // Simulate a copy: run.json still points at the other folder's checkpoints.
+  const run = JSON.parse(await readFile(join(dir, RUN_FILE), 'utf8'))
+  run.status = 'PAUSED'
+  run.options.checkpointSaveDir = join(other, 'checkpoints')
+  await writeFile(join(dir, RUN_FILE), JSON.stringify(run))
+  await mkdir(join(other, 'checkpoints', 'pause_checkpoint_step_00000003'), { recursive: true })
+  await train({ sdk: fakeSdk().sdk, runDir: dir, resume: true })
+  const { readdir } = await import('node:fs/promises')
+  assert.ok((await readdir(join(other, 'checkpoints'))).length > 0)
 })
