@@ -113,6 +113,20 @@ It only listens on 127.0.0.1, rejects requests with a foreign `Host` header (DNS
 
 From source, build the page once with `npm run build:ui`, then `npm start` opens it (extra flags go after `--`, e.g. `npm start -- --port 5000`). `npm run dev:ui` serves it with hot reload against a running `pocket-tune ui`.
 
+### Where your data lives
+
+Everything is plain files on your machine, so refreshing the page or restarting `pocket-tune ui` loses nothing:
+
+| What | Where |
+|---|---|
+| Dataset, settings, status | `runs/<name>/train.jsonl`, `eval.jsonl`, `prep.json`, `run.json` |
+| The trained adapter and its card | `runs/<name>/trained-lora-adapter.gguf`, `adapter.json` |
+| Loss curve | `runs/<name>/progress.jsonl` |
+| Questions asked in Compare | `runs/<name>/compare.jsonl` (the page shows the last 20) |
+| Base models | QVAC's cache, `~/.qvac/models`, downloaded once and shared by every run |
+
+`checkpoints/` exists only while a run can still be resumed, and it's deleted when the run completes (`--keep-checkpoints` keeps it). It's large: 1.9 GB for a Qwen3-1.7B run whose adapter is 35 MB. To remove a run, delete its folder.
+
 ### Using your own text
 
 To train on text you paste rather than files:
