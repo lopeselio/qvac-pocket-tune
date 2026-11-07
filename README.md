@@ -111,7 +111,7 @@ A local React page over the same prep → train → compare flow:
 
 It only listens on 127.0.0.1, rejects requests with a foreign `Host` header (DNS rebinding) and only accepts JSON POSTs. Run names are strict slugs, so no request can reach outside `runs/`. The page is a Vite build served under a CSP that only allows its own scripts. Ctrl+C pauses any running training before the server exits.
 
-From source, build the page once with `npm run build:ui`. `npm run dev:ui` serves it with hot reload against a running `pocket-tune ui`.
+From source, build the page once with `npm run build:ui`, then `npm start` opens it (extra flags go after `--`, e.g. `npm start -- --port 5000`). `npm run dev:ui` serves it with hot reload against a running `pocket-tune ui`.
 
 ## Mobile app
 
