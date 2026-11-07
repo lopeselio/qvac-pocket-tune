@@ -168,7 +168,13 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     return { status: 'COMPLETED', run, adapter, card }
   } finally {
     signal?.removeEventListener('abort', onAbort)
-    await sdk.unloadModel({ modelId, clearStorage: false })
+    // After a pause QVAC 0.23 refuses to unload the model ("Failed to unload
+    // model"). The run state is already saved and the CLI exits right after,
+    // so a failed unload must not replace the real result. It's expected after
+    // a pause, so only warn otherwise.
+    await sdk.unloadModel({ modelId, clearStorage: false }).catch((err) => {
+      if (!pauseRequested) onEvent({ type: 'warning', message: `could not unload the model cleanly (${err.message})` })
+    })
   }
 }
 

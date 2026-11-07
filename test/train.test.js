@@ -8,7 +8,7 @@ import { train, RUN_FILE, CARD_FILE, CARD_FORMAT } from '../src/train.js'
 const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf', sha256Checksum: 'c'.repeat(64) }
 
 /** Fake SDK that records calls and simulates finetune progress/pause. */
-function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanStats = false, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
+function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanStats = false, unloadFails = false, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
   const calls = []
   let paused = false
   let lastOptions = null
@@ -17,7 +17,10 @@ function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanSt
     QWEN3_4B_INST_Q4_K_M: { name: 'QWEN3_4B_INST_Q4_K_M', registryPath: 'q/Qwen3-4B-Q4_K_M.gguf' },
     async assessModelFit (o) { calls.push(['assessModelFit', o]); return fitResult },
     async loadModel (o) { calls.push(['loadModel', o]); o.onProgress?.({ percentage: 100 }); return 'm1' },
-    async unloadModel (o) { calls.push(['unloadModel', o]) },
+    async unloadModel (o) {
+      calls.push(['unloadModel', o])
+      if (unloadFails) throw new Error(`Failed to unload model "${o.modelId}"`)
+    },
     finetune (o) {
       calls.push(['finetune', o])
       if (o.operation === 'pause') {
@@ -176,4 +179,30 @@ test('still throws a NaN error when no fresh adapter was written', async (t) => 
   const dir = await runDirWith(t, { 'train.jsonl': SFT })
   const { sdk } = fakeSdk({ nanStats: true, writeAdapter: false })
   await assert.rejects(train({ sdk, runDir: dir, model: 'tiny' }), /NaN/)
+})
+
+test('a failed unload after pausing still reports PAUSED, without a warning', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  // QVAC 0.23 refuses to unload a model whose finetune was just paused.
+  const { sdk } = fakeSdk({ ticks: 10, pauseAfter: 2, unloadFails: true })
+  const ac = new AbortController()
+  const events = []
+  const res = await train({
+    sdk,
+    runDir: dir,
+    signal: ac.signal,
+    onEvent: (e) => { events.push(e); if (e.type === 'progress' && e.tick.global_steps === 2) ac.abort() }
+  })
+  assert.equal(res.status, 'PAUSED')
+  assert.ok(!events.some((e) => e.type === 'warning'))
+})
+
+test('a failed unload after a completed run keeps the adapter and warns', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk({ unloadFails: true })
+  const events = []
+  const res = await train({ sdk, runDir: dir, onEvent: (e) => events.push(e) })
+  assert.equal(res.status, 'COMPLETED')
+  assert.ok(res.card)
+  assert.ok(events.some((e) => e.type === 'warning' && /unload/.test(e.message)))
 })
