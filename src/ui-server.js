@@ -10,7 +10,8 @@
 // Run names are a strict slug, so no request can reach outside the runs dir.
 
 import { createServer } from 'node:http'
-import { appendFile, open, readFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { prepTexts, PREP_FILE } from './prep.js'
@@ -21,6 +22,15 @@ import { describeFit } from './fit.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const MAX_BODY = 8 * 1024 * 1024 // chat exports can run to a few MB
+// A voice clip arrives as base64 16 kHz mono 16-bit WAV: 32 KB/s, so 12 MB
+// is about 6 minutes. The page caps recordings well below that.
+const MAX_AUDIO = 12 * 1024 * 1024
+const MAX_AUDIO_BODY = Math.ceil(MAX_AUDIO * 4 / 3) + 4096
+/** Speech-to-text models the page offers (QVAC Whisper, runs locally). */
+export const STT_MODELS = {
+  en: { constant: 'WHISPER_EN_BASE_Q8_0', label: 'English' },
+  multi: { constant: 'WHISPER_BASE_Q8_0', label: 'Other languages' }
+}
 const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/i
 const SOURCE_TYPES = new Set(['notes', 'whatsapp', 'chat-json', 'qa-csv'])
 const MAX_TICKS = 5000
@@ -114,6 +124,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
   let chatQueue = Promise.resolve()
   let comparing = false
   let closing = false
+  // The speech-to-text model, loaded on first use and kept for the next clip.
+  const stt = { key: null, modelId: null }
+  let transcribing = false
   const notClosing = () => { if (closing) throw fail(503, 'Pocket Tune is shutting down.') }
 
   const training = () => !!job && ['loading', 'training', 'pausing'].includes(job.status)
@@ -136,6 +149,13 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       chat[side] = null
     }
     chat.run = null
+  }
+
+  async function unloadStt () {
+    const s = sdkPromise && (await sdkPromise.catch(() => null))
+    if (stt.modelId && s) await s.unloadModel({ modelId: stt.modelId, clearStorage: false }).catch(() => {})
+    stt.key = null
+    stt.modelId = null
   }
 
   // ---------- runs ----------
@@ -315,7 +335,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     // Check and claim synchronously: no await between here and `job =`.
     notClosing()
     if (training()) throw fail(409, `Already training "${job.run}".`)
-    if (comparing) throw fail(409, 'A comparison is running. Try again when it finishes.')
+    if (comparing || transcribing) throw fail(409, 'A comparison or transcription is running. Try again when it finishes.')
     const ac = new AbortController()
     // Resuming: keep the curve going, from this session or else from disk.
     const carry = resume && job?.run === body.run && job.status === 'PAUSED' ? job : null
@@ -330,6 +350,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       try {
         await chatQueue
         await unloadChat() // training needs the memory
+        await unloadStt()
         const res = await train({ sdk: s, runDir: dir, model, hyper, device, resume, signal: ac.signal, onEvent: (e) => onTrainEvent(j, e) })
         j.status = res.status
         if (res.status === 'COMPLETED') j.result = { size: res.card.adapter.size, metrics: res.card.metrics }
@@ -408,6 +429,48 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     res.end()
   }
 
+  // ---------- voice ----------
+
+  /**
+   * Transcribe one clip with QVAC Whisper. The page records (or reads a voice
+   * memo), converts it to 16 kHz mono WAV and posts it as base64 JSON. The
+   * clip goes to a private temp file for QVAC and is deleted right after.
+   */
+  async function transcribeClip (body) {
+    notClosing()
+    const key = body.model ?? 'en'
+    if (!Object.hasOwn(STT_MODELS, key)) throw fail(400, `Unknown speech model "${key}".`)
+    if (typeof body.audio !== 'string' || !body.audio) throw fail(400, 'Send the clip as base64 WAV in "audio".')
+    const wav = Buffer.from(body.audio, 'base64')
+    if (wav.length > MAX_AUDIO) throw fail(413, 'That clip is too long. Keep clips under about 5 minutes.')
+    if (wav.length < 44 || wav.toString('latin1', 0, 4) !== 'RIFF' || wav.toString('latin1', 8, 12) !== 'WAVE') throw fail(400, 'The clip must be a WAV file.')
+    if (training()) throw fail(409, 'Training is running. Transcribe when it finishes or after pausing.')
+    const s = await sdk()
+
+    const work = chatQueue.then(async () => {
+      if (training()) throw fail(409, 'Training started. Transcribe when it finishes.')
+      transcribing = true
+      const dir = await mkdtemp(join(tmpdir(), 'pocket-tune-voice-'))
+      try {
+        if (stt.key !== key) {
+          await unloadStt()
+          stt.modelId = await s.loadModel({ modelSrc: s[STT_MODELS[key].constant] })
+          stt.key = key
+        }
+        const file = join(dir, 'clip.wav')
+        await writeFile(file, wav)
+        const started = Date.now()
+        const text = await s.transcribe({ modelId: stt.modelId, audioChunk: file })
+        return { text: String(text ?? '').trim(), ms: Date.now() - started, model: key }
+      } finally {
+        transcribing = false
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+    chatQueue = work.catch(() => {})
+    return work
+  }
+
   // ---------- http ----------
 
   function send (res, status, body, type = 'application/json; charset=utf-8', cache = 'no-store') {
@@ -438,13 +501,13 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     }
   }
 
-  async function readJson (req) {
+  async function readJson (req, limit = MAX_BODY) {
     if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) throw fail(415, 'expected application/json')
     let size = 0
     const chunks = []
     for await (const c of req) {
       size += c.length
-      if (size > MAX_BODY) throw fail(413, 'request too large (8 MB max)')
+      if (size > limit) throw fail(413, `request too large (${Math.round(limit / 1024 / 1024)} MB max)`)
       chunks.push(c)
     }
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) ?? {} } catch { throw fail(400, 'invalid JSON') }
@@ -462,9 +525,10 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
             qvac: !!loadSdk,
             device,
             runsDir: runsRoot,
-            busy: training() ? 'training' : comparing ? 'comparing' : null,
+            busy: training() ? 'training' : comparing ? 'comparing' : transcribing ? 'transcribing' : null,
             job: publicJob(Math.max(0, Number(url.searchParams.get('since')) || 0)),
             chat: { run: chat.run, loaded: ['base', 'tuned'].filter((s) => chat[s]) },
+            stt: { loaded: stt.key, models: Object.entries(STT_MODELS).map(([id, m]) => ({ id, label: m.label })) },
             models: Object.entries(PRESETS).map(([id, m]) => ({ id, label: m.label, mode: m.mode, phone: m.phone }))
           })
         }
@@ -482,6 +546,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
         if (p === '/api/train') return send(res, 202, await startTraining(await readJson(req)))
         if (p === '/api/pause') { await readJson(req); return send(res, 200, pause()) }
         if (p === '/api/compare') return await compareStream(req, res)
+        if (p === '/api/transcribe') return send(res, 200, await transcribeClip(await readJson(req, MAX_AUDIO_BODY)))
       }
       return send(res, 404, { error: 'not found' })
     } catch (err) {
@@ -512,6 +577,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       await jobDone
       await chatQueue
       await unloadChat()
+      await unloadStt()
       server.closeAllConnections?.()
       await new Promise((resolve) => server.close(resolve))
     }
