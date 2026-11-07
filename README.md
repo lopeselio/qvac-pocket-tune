@@ -60,6 +60,7 @@ pocket-tune resume <run>
 pocket-tune chat <run> [--base]
 pocket-tune compare <run> "prompt one" ["prompt two"...]
 pocket-tune share <run> --name <adapter-name> [--no-seed]
+pocket-tune ui [--runs runs] [--port 4322] [--no-open] [--cpu]
 pocket-tune models
 ```
 
@@ -94,6 +95,24 @@ pocket-tune share runs/pirate --name pirate-voice
 
 Only the adapter and its card are published. Anyone can then fetch it, verified, with `npx qvac-seed fetch <url>` and load it on the same base model via `modelConfig.lora`.
 
+## Web UI
+
+```bash
+pocket-tune ui          # opens http://127.0.0.1:4322/
+```
+
+![Pocket Tune web UI: base and tuned answers side by side](docs/ui-compare.png)
+
+A local React page over the same prep → train → compare flow:
+
+- **Data.** Pick an example or your own files and prepare a run. You see exactly what the model will learn from, with every scrubbed secret highlighted as its placeholder.
+- **Train.** Pick a base model, epochs and learning rate. Watch the memory check, download, and a live loss curve with validation loss per epoch. **Pause** saves a checkpoint and **Resume** continues from it, even after restarting the UI.
+- **Compare.** Ask the base model and the tuned one the same question and watch both answers stream side by side, with the same system prompt and sampling. The models stay loaded, so follow-up questions are quick.
+
+It only listens on 127.0.0.1, rejects requests with a foreign `Host` header (DNS rebinding) and only accepts JSON POSTs. Run names are strict slugs, so no request can reach outside `runs/`. The page is a Vite build served under a CSP that only allows its own scripts. Ctrl+C pauses any running training before the server exits.
+
+From source, build the page once with `npm run build:ui`. `npm run dev:ui` serves it with hot reload against a running `pocket-tune ui`.
+
 ## Mobile app
 
 [`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
@@ -119,7 +138,8 @@ console.log(res.adapter, res.card.metrics)
 ## Development
 
 ```bash
-npm test   # parsers, scrubber, dataset builder, trainer (fake SDK), chat/compare, share via qvac-seed
+npm test        # parsers, scrubber, dataset builder, trainer and web UI server (fake SDK), chat/compare, share via qvac-seed
+npm run build:ui  # typecheck and build the React UI into ui/dist
 ```
 
 ## License
