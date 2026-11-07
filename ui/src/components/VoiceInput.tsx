@@ -110,7 +110,7 @@ export function VoiceInput ({ state, onAnswer, onNote }: Props) {
 
   return (
     <div className='voice'>
-      <div className='row wrap'>
+      <div className='row row-wrap'>
         <div className='seg' role='tablist' aria-label='What to record'>
           <button type='button' role='tab' aria-selected={mode === 'qa'} onClick={() => setMode('qa')}>Answer questions</button>
           <button type='button' role='tab' aria-selected={mode === 'notes'} onClick={() => setMode('notes')}>Dictate notes</button>
