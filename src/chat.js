@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { RUN_FILE, findAdapter } from './train.js'
-import { ThinkFilter, withNoThink } from './think.js'
+import { ThinkFilter, withThinkingFallback } from './think.js'
 import { CHAT_SAMPLING } from './build.js'
 
 export { ThinkFilter }
@@ -30,15 +30,19 @@ export function systemPromptFromRun (run) {
  * Stream one reply, returning the visible text. Aborting `signal` cancels
  * the generation in QVAC and returns what was produced so far.
  *
- * If the model is still "thinking" when the reply budget runs out, nothing
- * visible was produced: ask once more with thinking switched off. Replies
- * that close their (often empty) think block never take this path, so their
- * output doesn't change.
+ * Qwen3 sometimes spends the whole reply budget thinking and leaves no
+ * visible answer; then it's asked once more with thinking switched off
+ * (`onRetry` is called first, and `onNoThink(true)` reports it). Replies
+ * that produce an answer never retry, so their output doesn't change.
  */
-export async function reply ({ sdk, modelId, history, onText = () => {}, signal }) {
-  const first = await replyOnce({ sdk, modelId, history, onText, signal })
-  if (first.text || !first.stuckThinking || signal?.aborted) return first.text
-  return (await replyOnce({ sdk, modelId, history: withNoThink(history), onText, signal })).text
+export async function reply ({ sdk, modelId, history, onText = () => {}, signal, onRetry = () => {}, onNoThink = () => {} }) {
+  const { text, noThink } = await withThinkingFallback(
+    history,
+    async (h) => (await replyOnce({ sdk, modelId, history: h, onText, signal })).text,
+    { aborted: () => !!signal?.aborted, onRetry }
+  )
+  onNoThink(noThink)
+  return text
 }
 
 async function replyOnce ({ sdk, modelId, history, onText, signal }) {
@@ -77,7 +81,7 @@ export async function compare ({ sdk, runDir, prompts, device = 'gpu', sampling,
     try {
       for (const r of results) {
         const history = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: r.prompt }]
-        r[key] = await reply({ sdk, modelId, history })
+        r[key] = await reply({ sdk, modelId, history, onNoThink: (n) => { if (n) (r.noThink ??= []).push(key) } })
       }
     } finally {
       await sdk.unloadModel({ modelId, clearStorage: false })

@@ -148,3 +148,41 @@ test('withNoThink appends to an existing system prompt', async () => {
   const { withNoThink } = await import('../src/think.js')
   assert.deepEqual(withNoThink([{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'hi' }])[0], { role: 'system', content: 'Be brief. /no_think' })
 })
+
+test('reply also retries when the think block closed but nothing came after it', async () => {
+  const histories = []
+  const sdk = {
+    completion ({ history }) {
+      histories.push(history)
+      const text = history[0]?.content === '/no_think' ? 'Short answer.' : '<think>long plan</think>\n\n'
+      return { events: (async function * () { yield { type: 'contentDelta', text } })() }
+    }
+  }
+  let flagged = null
+  assert.equal(await reply({ sdk, modelId: 'm', history: [{ role: 'user', content: 'q' }], onNoThink: (n) => { flagged = n } }), 'Short answer.')
+  assert.equal(histories.length, 2)
+  assert.equal(flagged, true)
+})
+
+test('compare flags which side was asked again with thinking off', async (t) => {
+  const d = await tmp(t)
+  await writeFile(join(d, 'run.json'), JSON.stringify({ model: { src: 'x/Qwen3-0.6B-Q4_0.gguf' }, options: { contextLength: 512 }, system: null }))
+  await writeFile(join(d, 'trained-lora-adapter.gguf'), 'A')
+  const sdk = {
+    async loadModel (o) { return o.modelConfig.lora ? 'tuned' : 'base' },
+    async unloadModel () {},
+    completion ({ modelId, history }) {
+      const noThink = history[0]?.content === '/no_think'
+      const text = modelId === 'base' && !noThink ? '<think>rambling' : 'Answer.'
+      return { events: (async function * () { yield { type: 'contentDelta', text } })() }
+    }
+  }
+  const [row] = await compare({ sdk, runDir: d, prompts: ['hi'] })
+  assert.deepEqual(row.noThink, ['base'])
+  assert.equal(row.base, 'Answer.')
+})
+
+test('withNoThink tolerates a system message without content', async () => {
+  const { withNoThink } = await import('../src/think.js')
+  assert.deepEqual(withNoThink([{ role: 'system', content: null }])[0], { role: 'system', content: '/no_think' })
+})
