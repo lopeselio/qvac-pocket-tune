@@ -115,6 +115,11 @@ async function main (argv) {
     const sdk = await loadSdk()
     const ac = new AbortController()
     let interrupts = 0
+    // The SDK's own SIGINT handler kills the worker and re-raises the signal,
+    // which would end the process before the pause checkpoint is written.
+    // While training, Ctrl+C means "pause", so take the signal over. Its
+    // 'exit' hook still shuts the worker down when we do exit.
+    process.removeAllListeners('SIGINT')
     process.on('SIGINT', () => {
       if (++interrupts > 1) process.exit(130)
       ac.abort()
