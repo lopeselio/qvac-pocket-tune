@@ -52,4 +52,4 @@ jobs:
       # Typechecks, then builds ui/dist. The page must not need inline
       # scripts: the server's CSP only allows script-src 'self'.
       - run: npm run build
-      - run: "! grep -E '<script>|<script [^>]*>[^<]' dist/index.html"
+      - run: node ../scripts/check-no-inline-scripts.mjs dist/index.html

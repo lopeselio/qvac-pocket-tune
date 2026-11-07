@@ -28,11 +28,11 @@ export function LossChart ({ ticks }: { ticks: Tick[] }) {
   // Trailing moving average. An EMA lags far behind the steep drop in the
   // first steps and makes the curve look worse than it is.
   const win = Math.max(1, Math.round(train.length / 25))
-  const smooth = train.map((_, i) => {
-    const from = Math.max(0, i - win + 1)
-    let sum = 0
-    for (let k = from; k <= i; k++) sum += train[k].loss!
-    return sum / (i - from + 1)
+  let sum = 0
+  const smooth = train.map((t, i) => {
+    sum += t.loss!
+    if (i >= win) sum -= train[i - win].loss!
+    return sum / Math.min(i + 1, win)
   })
   const line = (vals: number[]) => vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
 
