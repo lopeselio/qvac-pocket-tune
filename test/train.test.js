@@ -28,7 +28,16 @@ function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanSt
       }
       lastOptions = o.options
       const out = o.options.outputParametersDir
+      let streamDone
+      const drained = new Promise((resolve) => { streamDone = resolve })
       async function * progressStream () {
+        try {
+          yield * ticksUntilPause()
+        } finally {
+          streamDone()
+        }
+      }
+      async function * ticksUntilPause () {
         for (let i = 1; i <= ticks; i++) {
           await new Promise((r) => setImmediate(r))
           yield { is_train: true, loss: 1 / i, accuracy: 0.5, global_steps: i, current_epoch: 0, current_batch: i, total_batches: ticks, elapsed_ms: 1, eta_ms: 1 }
@@ -37,8 +46,9 @@ function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, nanSt
         }
       }
       const result = (async () => {
-        // Wait until the stream is drained, like the real handle.
-        await new Promise((r) => setTimeout(r, 30))
+        // Settle only once the stream is drained, like the real handle
+        // (a fixed timer raced the pause on slow CI runners).
+        await drained
         if (paused) return { type: 'finetune', status: 'PAUSED' }
         if (writeAdapter) await writeFile(join(out, 'trained-lora-adapter.gguf'), 'ADAPTER')
         if (nanStats) throw new Error('✖ Invalid input: expected number, received NaN\n  → at stats.train_accuracy')
