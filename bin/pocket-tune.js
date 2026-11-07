@@ -13,10 +13,12 @@ Usage:
   pocket-tune chat <run> [--base]
   pocket-tune compare <run> "prompt one" ["prompt two"...]
   pocket-tune share <run> --name <adapter-name> [--no-seed]
+  pocket-tune ui [--runs runs] [--port 4322] [--no-open] [--cpu]
   pocket-tune models
 
 --force skips the fine-tunability and memory checks.
 Ctrl+C during training pauses at the next step; \`pocket-tune resume <run>\` continues.
+\`ui\` opens a local web page (127.0.0.1 only) for the same prep → train → compare flow.
 Your data and the training both stay on this machine. \`share\` publishes only the adapter
 weights and a small card (base model, hyperparameters, metrics, dataset hashes).
 `
@@ -72,6 +74,9 @@ async function main (argv) {
       base: { type: 'boolean' },
       name: { type: 'string' },
       'no-seed': { type: 'boolean' },
+      runs: { type: 'string' },
+      port: { type: 'string' },
+      'no-open': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' }
     }
   })
@@ -185,6 +190,38 @@ async function main (argv) {
       console.log(`\n❯ ${r.prompt}\n  base : ${r.base.replace(/\n/g, '\n         ')}\n  tuned: ${r.tuned.replace(/\n/g, '\n         ')}`)
     }
     process.exit(0)
+  }
+
+  if (cmd === 'ui') {
+    const { createUiServer } = await import('../src/ui-server.js')
+    const runsDir = v.runs ?? 'runs'
+    const ui = createUiServer({
+      loadSdk,
+      runsDir,
+      device,
+      log: (l) => console.error(`▸ ${l}`)
+    })
+    const url = await ui.listen(Number(v.port ?? 4322))
+    console.log(`Pocket Tune UI: ${url}  (runs in ${runsDir}/, Ctrl+C to stop)`)
+    if (!v['no-open']) {
+      const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open'
+      const { spawn } = await import('node:child_process')
+      spawn(opener, [url], { stdio: 'ignore', detached: true }).on('error', () => {}).unref()
+    }
+    // Same as \`train\`: the SDK's SIGINT handler would kill a run mid-step.
+    // First Ctrl+C pauses any training (so it can be resumed) and exits.
+    process.removeAllListeners('SIGINT')
+    let stopping = false
+    const stop = async () => {
+      if (stopping) process.exit(130)
+      stopping = true
+      if (ui.training) console.error('\n▸ pausing training before exiting… (Ctrl+C again to quit now)')
+      await ui.close()
+      process.exit(0)
+    }
+    process.on('SIGINT', stop)
+    process.on('SIGTERM', stop)
+    return new Promise(() => {})
   }
 
   if (cmd === 'share') {
