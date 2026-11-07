@@ -20,6 +20,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "start": "node bin/pocket-tune.js ui",
     "test": "node --test",
     "build:ui": "npm --prefix ui ci && npm --prefix ui run build",
     "dev:ui": "npm --prefix ui run dev",
