@@ -248,9 +248,15 @@ test('pause stops training at the next step, and resume continues it', async (t)
 
     const { sdk: sdk2 } = fakeSdk({ ticks: 2 })
     Object.assign(sdk, { finetune: sdk2.finetune })
+    const ticksBefore = (await call(url + 'api/state')).json().job.tickCount
+    assert.ok(ticksBefore > 0)
     assert.equal((await post(url + 'api/train', { run: 'r', resume: true })).status, 202)
     await ui.jobDone
-    assert.equal((await call(url + 'api/state')).json().job.status, 'COMPLETED')
+    const resumed = (await call(url + 'api/state')).json().job
+    assert.equal(resumed.status, 'COMPLETED')
+    // The curve carries on from before the pause.
+    assert.equal(resumed.carried, true)
+    assert.equal(resumed.tickCount, ticksBefore + 2)
     assert.ok(calls.some((c) => c[0] === 'finetune' && c[1] === 'pause'))
   })
 })

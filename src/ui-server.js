@@ -260,7 +260,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     if (training()) throw fail(409, `Already training "${job.run}".`)
     if (comparing) throw fail(409, 'A comparison is running. Try again when it finishes.')
     const ac = new AbortController()
-    const j = { kind: 'train', run: body.run, resume, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null, ac, ticks: [] }
+    // Resuming a run paused in this session: keep its curve going.
+    const earlier = resume && job?.run === body.run && job.status === 'PAUSED' ? job.ticks : []
+    const j = { kind: 'train', run: body.run, resume, carried: earlier.length > 0, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null, ac, ticks: [...earlier] }
     job = j
     log(`${resume ? 'resuming' : 'training'} "${body.run}"`)
     jobDone = (async () => {

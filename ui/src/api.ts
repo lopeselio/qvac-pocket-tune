@@ -9,6 +9,8 @@ export interface Job {
   kind: 'train'
   run: string
   resume: boolean
+  /** Resumed in this session: ticks from before the pause are included. */
+  carried: boolean
   model: string
   status: JobStatus
   fit: string[]
