@@ -195,6 +195,7 @@ test('a failed unload after pausing still reports PAUSED, without a warning', as
   })
   assert.equal(res.status, 'PAUSED')
   assert.ok(!events.some((e) => e.type === 'warning'))
+  assert.ok(events.some((e) => e.type === 'unload-failed' && e.afterPause))
 })
 
 test('a failed unload after a completed run keeps the adapter and warns', async (t) => {
@@ -204,5 +205,33 @@ test('a failed unload after a completed run keeps the adapter and warns', async 
   const res = await train({ sdk, runDir: dir, onEvent: (e) => events.push(e) })
   assert.equal(res.status, 'COMPLETED')
   assert.ok(res.card)
+  assert.ok(events.some((e) => e.type === 'warning' && /unload/.test(e.message)))
+})
+
+test('Ctrl+C after the job finished: the late pause is awaited and a failed unload still warns', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk, calls } = fakeSdk({ unloadFails: true })
+  const ac = new AbortController()
+  const realFinetune = sdk.finetune
+  let pauseCalled = false
+  let pauseSettled = false
+  sdk.finetune = (o) => {
+    // Pausing a finished job fails. If train() didn't await it, this would be
+    // an unhandled rejection and fail the test run.
+    if (o.operation === 'pause') {
+      pauseCalled = true
+      return new Promise((_resolve, reject) => setTimeout(() => { pauseSettled = true; reject(new Error('no running job')) }, 10))
+    }
+    const handle = realFinetune(o)
+    // Press Ctrl+C right as the job settles, while run.json and the card are written.
+    handle.result = handle.result.then((r) => { setImmediate(() => ac.abort()); return r })
+    return handle
+  }
+  const events = []
+  const res = await train({ sdk, runDir: dir, signal: ac.signal, onEvent: (e) => events.push(e) })
+  assert.equal(res.status, 'COMPLETED')
+  assert.ok(pauseCalled, 'the abort landed after the job finished')
+  assert.ok(pauseSettled, 'unload waited for the late pause')
+  assert.ok(events.some((e) => e.type === 'unload-failed' && !e.afterPause))
   assert.ok(events.some((e) => e.type === 'warning' && /unload/.test(e.message)))
 })
