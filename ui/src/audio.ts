@@ -5,7 +5,13 @@
 const RATE = 16000
 export const MAX_SECONDS = 180
 
+// Compressed voice memos are ~0.5-2 MB per minute; even uncompressed 48 kHz
+// stereo WAV is ~11 MB per minute. Anything far larger can't be a clip under
+// MAX_SECONDS, and decoding it would expand to gigabytes of float PCM.
+const MAX_FILE_BYTES = 40 * 1024 * 1024
+
 export async function toWav16k (blob: Blob): Promise<{ wav: Uint8Array, seconds: number }> {
+  if (blob.size > MAX_FILE_BYTES) throw new Error(`That file is too large. Keep clips under ${MAX_SECONDS / 60} minutes.`)
   const ctx = new AudioContext()
   let decoded: AudioBuffer
   try {
@@ -38,12 +44,6 @@ function encodeWav (samples: Float32Array): Uint8Array {
     out.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true)
   }
   return new Uint8Array(out.buffer)
-}
-
-export function toBase64 (bytes: Uint8Array) {
-  let s = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return btoa(s)
 }
 
 /** Microphone recording with a running timer and an automatic stop at MAX_SECONDS. */

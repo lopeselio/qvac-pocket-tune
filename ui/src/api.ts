@@ -33,7 +33,7 @@ export interface ServerState {
   busy: 'training' | 'comparing' | 'transcribing' | null
   job: Job | null
   chat: { run: string | null, loaded: ('base' | 'tuned')[] }
-  stt: { loaded: string | null, models: { id: string, label: string }[] }
+  stt: { loaded: string | null, download: number | null, maxSeconds: number, models: { id: string, label: string }[] }
   models: ModelPreset[]
 }
 
@@ -111,8 +111,11 @@ export const api = {
   prep: (body: { name: string, sources: Source[], me?: string, system?: string, scrub: boolean, evalFraction: number }) => post<RunDetails>('/api/prep', body),
   train: (body: { run: string, model?: string, epochs?: number, lr?: number, resume?: boolean }) => post<Job>('/api/train', body),
   pause: () => post<Job>('/api/pause', {}),
-  /** Speech-to-text on this machine. `audio` is base64 16 kHz mono WAV. */
-  transcribe: (audio: string, model: string) => post<{ text: string, ms: number, model: string }>('/api/transcribe', { audio, model }),
+  /** Speech-to-text on this machine. `wav` is 16 kHz mono 16-bit WAV. */
+  transcribe: (wav: Uint8Array, model: string) => request<{ text: string, ms: number, model: string }>(
+    `/api/transcribe?model=${encodeURIComponent(model)}`,
+    { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav as BlobPart }
+  ),
 
   /** Streams NDJSON events until the comparison finishes. */
   async compare (run: string, prompt: string, onEvent: (e: CompareEvent) => void, signal?: AbortSignal) {
