@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { train, RUN_FILE, CARD_FILE, CARD_FORMAT } from '../src/train.js'
@@ -11,6 +11,7 @@ const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf
 function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, fitResult = { verdict: 'likely-fits', models: [] } } = {}) {
   const calls = []
   let paused = false
+  let lastOptions = null
   const sdk = {
     QWEN3_600M_INST_Q4: QWEN,
     QWEN3_4B_INST_Q4_K_M: { name: 'QWEN3_4B_INST_Q4_K_M', registryPath: 'q/Qwen3-4B-Q4_K_M.gguf' },
@@ -19,7 +20,13 @@ function fakeSdk ({ ticks = 3, pauseAfter = Infinity, writeAdapter = true, fitRe
     async unloadModel (o) { calls.push(['unloadModel', o]) },
     finetune (o) {
       calls.push(['finetune', o])
-      if (o.operation === 'pause') { paused = true; return Promise.resolve({ type: 'finetune', status: 'PAUSED' }) }
+      if (o.operation === 'pause') {
+        paused = true
+        // Like QVAC, pausing leaves a pause checkpoint behind.
+        return mkdir(join(lastOptions.checkpointSaveDir, 'pause_checkpoint_step_00000002'), { recursive: true })
+          .then(() => ({ type: 'finetune', status: 'PAUSED' }))
+      }
+      lastOptions = o.options
       const out = o.options.outputParametersDir
       async function * progressStream () {
         for (let i = 1; i <= ticks; i++) {
@@ -130,4 +137,16 @@ test('checks fit before downloading and refuses a model that will not fit unless
   const b = fakeSdk({ fitResult: tooBig })
   const res = await train({ sdk: b.sdk, runDir: dir2, force: true })
   assert.equal(res.status, 'COMPLETED')
+})
+
+test('resume explains that a crashed run (no pause checkpoint) has to start again', async (t) => {
+  const dir = await runDirWith(t, { 'train.jsonl': SFT })
+  const { sdk } = fakeSdk({ writeAdapter: false })
+  // A run that crashed: run.json says RUNNING, checkpoints exist, but no pause checkpoint.
+  await train({ sdk, runDir: dir, model: 'tiny' }).catch(() => {})
+  const run = JSON.parse(await readFile(join(dir, RUN_FILE), 'utf8'))
+  run.status = 'RUNNING'
+  await writeFile(join(dir, RUN_FILE), JSON.stringify(run))
+  await mkdir(join(run.options.checkpointSaveDir, 'checkpoint_step_00000025'), { recursive: true })
+  await assert.rejects(train({ sdk, runDir: dir, resume: true }), /no pause checkpoint.*pocket-tune train/s)
 })

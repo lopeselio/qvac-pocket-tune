@@ -62,6 +62,15 @@ export function finetuneOptions ({ runDir, data, hyper, hasEval }) {
  * @param {AbortSignal} [p.signal] abort → pause at the next step (resumable)
  * @param {(e: object) => void} [p.onEvent]
  */
+const PAUSE_PREFIX = 'pause_checkpoint_step_'
+
+/** True when QVAC left a pause checkpoint (written by Ctrl+C / pause) it can resume from. */
+export async function hasPauseCheckpoint (run) {
+  try {
+    return (await readdir(run.options.checkpointSaveDir)).some((n) => n.startsWith(PAUSE_PREFIX))
+  } catch { return false }
+}
+
 export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume = false, force = false, device = 'gpu', signal, onEvent = () => {} }) {
   runDir = resolve(runDir)
   const runPath = join(runDir, RUN_FILE)
@@ -70,6 +79,12 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     if (!(await exists(runPath))) throw new Error(`Nothing to resume in ${runDir}`)
     run = JSON.parse(await readFile(runPath, 'utf8'))
     if (run.status === 'COMPLETED') throw new Error('That run already completed')
+    // QVAC resumes only from a pause checkpoint. The periodic checkpoints a
+    // crash leaves behind can't be resumed, so say so instead of failing deep
+    // inside the addon.
+    if (!(await hasPauseCheckpoint(run))) {
+      throw new Error(`${runDir} has no pause checkpoint, so it can't be resumed (QVAC resumes only runs paused with Ctrl+C, not ones that crashed or were killed). Start it again with: pocket-tune train ${runDir}`)
+    }
   } else {
     const data = await detectRunData(runDir)
     const resolved = resolveModel(model, sdk)
