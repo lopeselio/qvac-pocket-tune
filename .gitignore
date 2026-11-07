@@ -4,3 +4,5 @@ adapters/
 *.part
 .DS_Store
 .smoke/
+ui/dist/
+*.tsbuildinfo
