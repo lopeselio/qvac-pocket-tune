@@ -200,3 +200,4 @@ footer a { color: var(--accent); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .voice > .row.row-wrap { justify-content: flex-start; align-items: center; }
 .card-b > .row.row-wrap { margin: 4px 0 16px; }
+.seg button:disabled { opacity: .45; cursor: default; }

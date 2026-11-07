@@ -110,6 +110,7 @@ export function NewRun ({ examples, runs, state, onCreated }: { examples: Exampl
           <summary>🎙 Speak instead</summary>
           <VoiceInput
             state={state}
+            lockedMode={voiceQA.length ? 'qa' : voiceNotes.length ? 'notes' : null}
             onAnswer={(q, a) => { setVoiceQA((v) => [...v, { q, a }]); ensureName() }}
             onNote={(text) => { setVoiceNotes((v) => [...v, text]); ensureName() }}
           />
