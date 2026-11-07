@@ -22,8 +22,13 @@ export function CompareTab ({ run, state }: { run: RunDetails, state: ServerStat
   const abort = useRef<AbortController | null>(null)
   const nextId = useRef(1)
 
-  // Questions belong to one run; a stream in flight stops when you switch away.
-  useEffect(() => { setRows([]); return () => abort.current?.abort() }, [run.name])
+  // Questions belong to one run: show the ones saved with it. A stream in
+  // flight stops when you switch away.
+  useEffect(() => {
+    setRows(run.history.map((h) => ({ id: nextId.current++, prompt: h.prompt, base: h.base, tuned: h.tuned, stage: { base: 'done', tuned: 'done' }, error: null })))
+    return () => abort.current?.abort()
+    // Only when the run changes, not on every details refresh.
+  }, [run.name])
 
   const blocked = state.busy === 'training' ? 'Training is running. Compare when it finishes or after pausing.' : !run.hasAdapter ? 'Train this run first.' : !state.qvac ? "QVAC isn't available in this session." : null
   const warm = state.chat.run === run.name && state.chat.loaded.length === 2

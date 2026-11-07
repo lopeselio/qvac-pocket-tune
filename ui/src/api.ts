@@ -75,6 +75,10 @@ export interface RunDetails {
   card: AdapterCard | null
   hasAdapter: boolean
   preview: PreviewItem[]
+  /** The saved loss curve (runs/<name>/progress.jsonl), downsampled. */
+  curve: Tick[]
+  /** Saved comparisons (runs/<name>/compare.jsonl), newest first. */
+  history: { at: string, prompt: string, base: string, tuned: string }[]
 }
 
 export interface Source { name: string, text: string, type?: string }
