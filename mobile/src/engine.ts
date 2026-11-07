@@ -110,10 +110,10 @@ async function reply (modelId: string, history: { role: string, content: string 
   for await (const ev of run.events) {
     if (ev.type !== 'contentDelta') continue
     const visible = filter.push(ev.text)
-    // Drop the blank lines Qwen3 puts after its empty think block.
-    if (visible) { text += visible; onText?.(text.trimStart()) }
+    if (visible) { text += visible; onText?.(text) }
   }
-  text += filter.flush()
+  const tail = filter.flush()
+  if (tail) { text += tail; onText?.(text) }
   return text.trim()
 }
 

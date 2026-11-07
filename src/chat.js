@@ -31,10 +31,7 @@ export async function reply ({ sdk, modelId, history, onText = () => {} }) {
   const run = sdk.completion({ modelId, history, stream: true })
   const filter = new ThinkFilter()
   let text = ''
-  // Qwen3 follows its (empty) <think></think> block with blank lines; drop
-  // whitespace until the first visible character so replies start on the prompt line.
-  const emit = (chunk) => {
-    const visible = text ? chunk : chunk.trimStart()
+  const emit = (visible) => {
     if (!visible) return
     text += visible
     onText(visible)
