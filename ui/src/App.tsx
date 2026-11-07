@@ -44,6 +44,12 @@ export function App () {
   useEffect(() => { void loadRuns(); api.examples().then(setExamples).catch(() => {}) }, [loadRuns])
   useEffect(() => { loadDetails(selected) }, [selected, loadDetails])
   useEffect(() => { history.replaceState(null, '', `#${selected ? encodeURIComponent(selected) : ''}/${tab}`) }, [selected, tab])
+  // Follow hash edits and back/forward too, not only the first load.
+  useEffect(() => {
+    const onHash = () => { const h = readHash(); setSelected(h.run); setTab(h.tab) }
+    addEventListener('hashchange', onHash)
+    return () => removeEventListener('hashchange', onHash)
+  }, [])
 
   // When the training job changes state (started, paused, done), refresh what's on screen.
   const jobKey = state?.job ? `${state.job.run}:${state.job.startedAt}:${state.job.status}` : ''
