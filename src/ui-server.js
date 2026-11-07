@@ -37,7 +37,7 @@ const MIME = {
 }
 // The React build only loads its own files, so nothing inline is allowed.
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-const NOT_BUILT = '<!doctype html><meta charset="utf-8"><title>Pocket Tune</title><p style="font:16px system-ui;margin:40px">The web UI hasn\'t been built yet. Run <code>npm run build:ui</code> in the pocket-tune folder, then reload.</p>'
+const NOT_BUILT = '<!doctype html><meta charset="utf-8"><title>Pocket Tune</title><p>The web UI hasn\'t been built yet. Run <code>npm run build:ui</code> in the pocket-tune folder, then reload.</p>'
 
 /** Bundled datasets the page offers as one-click examples. */
 export const EXAMPLES = [
@@ -81,6 +81,8 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
   const chat = { run: null, base: null, tuned: null, system: null }
   let chatQueue = Promise.resolve()
   let comparing = false
+  let closing = false
+  const notClosing = () => { if (closing) throw fail(503, 'Pocket Tune is shutting down.') }
 
   const training = () => !!job && ['loading', 'training', 'pausing'].includes(job.status)
 
@@ -123,23 +125,21 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
   async function listRuns () {
     let entries = []
     try { entries = await readdir(runsRoot, { withFileTypes: true }) } catch {}
-    const out = []
-    for (const e of entries) {
-      if (!e.isDirectory() || !NAME.test(e.name)) continue
+    const out = await Promise.all(entries.filter((e) => e.isDirectory() && NAME.test(e.name)).map(async (e) => {
       const r = await readRun(e.name)
-      if (!r) continue
-      const mtime = (await stat(r.dir)).mtimeMs
-      out.push({
+      if (!r) return null
+      const [{ mtimeMs: mtime }, adapter] = await Promise.all([stat(r.dir), findAdapter(r.dir)])
+      return {
         name: e.name,
         mode: r.prep?.mode ?? r.run?.mode ?? null,
         status: runStatus(e.name, r.run, r.prep),
         model: r.run?.model?.name ?? null,
-        hasAdapter: !!(await findAdapter(r.dir)),
+        hasAdapter: !!adapter,
         updatedAt: r.run?.updatedAt ?? r.prep?.createdAt ?? new Date(mtime).toISOString(),
         mtime
-      })
-    }
-    return out.sort((a, b) => b.mtime - a.mtime).map(({ mtime, ...r }) => r)
+      }
+    }))
+    return out.filter(Boolean).sort((a, b) => b.mtime - a.mtime).map(({ mtime, ...r }) => r)
   }
 
   async function preview (dir, mode) {
@@ -195,6 +195,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       if (s.type != null && !SOURCE_TYPES.has(s.type)) throw fail(400, `Unknown source type "${s.type}".`)
       return { name, text: s.text, ...(s.type ? { type: s.type } : {}) }
     })
+    if (job?.run === body.name && training()) throw fail(409, `"${body.name}" is training right now.`)
     const existing = await readRun(body.name)
     if (existing?.run) throw fail(409, `"${body.name}" has already been trained. Pick another name.`)
     const evalFraction = body.evalFraction == null ? undefined : Number(body.evalFraction)
@@ -218,8 +219,11 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
 
   function publicJob (since = 0) {
     if (!job) return null
-    const { ac, ticks, ...rest } = job
-    return { ...rest, tickCount: ticks.length, ticks: ticks.slice(since) }
+    const { ac, ticks, total, ...rest } = job
+    // `total` keeps counting after old ticks are dropped, so `since` stays
+    // a valid position for clients that poll incrementally.
+    const dropped = total - ticks.length
+    return { ...rest, tickCount: total, ticks: ticks.slice(Math.max(0, since - dropped)) }
   }
 
   function onTrainEvent (j, e) {
@@ -230,6 +234,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     else if (e.type === 'progress') {
       if (j.status === 'loading') j.status = 'training'
       const t = e.tick
+      j.total++
       j.ticks.push({ train: !!t.is_train, epoch: t.current_epoch, batch: t.current_batch, batches: t.total_batches, step: t.global_steps, loss: t.loss, acc: t.accuracy, eta: t.eta_ms })
       if (j.ticks.length > MAX_TICKS) j.ticks.splice(0, j.ticks.length - MAX_TICKS)
     }
@@ -257,12 +262,13 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     }
     const s = await sdk()
     // Check and claim synchronously: no await between here and `job =`.
+    notClosing()
     if (training()) throw fail(409, `Already training "${job.run}".`)
     if (comparing) throw fail(409, 'A comparison is running. Try again when it finishes.')
     const ac = new AbortController()
     // Resuming a run paused in this session: keep its curve going.
-    const earlier = resume && job?.run === body.run && job.status === 'PAUSED' ? job.ticks : []
-    const j = { kind: 'train', run: body.run, resume, carried: earlier.length > 0, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null, ac, ticks: [...earlier] }
+    const carry = resume && job?.run === body.run && job.status === 'PAUSED' ? job : null
+    const j = { kind: 'train', run: body.run, resume, carried: !!carry?.ticks.length, model, status: 'loading', fit: [], download: null, warnings: [], error: null, result: null, startedAt: Date.now(), endedAt: null, ac, ticks: carry ? [...carry.ticks] : [], total: carry?.total ?? 0 }
     job = j
     log(`${resume ? 'resuming' : 'training'} "${body.run}"`)
     jobDone = (async () => {
@@ -298,19 +304,27 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     const dir = runDir(body.run)
     const prompt = str(body.prompt, 2000)?.trim()
     if (!prompt) throw fail(400, 'Type a prompt (up to 2000 characters).')
+    notClosing()
     if (training()) throw fail(409, 'Training is running. Pause it or wait for it to finish.')
+    if (!(await readRun(body.run))) throw fail(404, `No run named "${body.run}"`)
     if (!(await findAdapter(dir))) throw fail(409, 'Train this run first.')
     const s = await sdk()
 
     res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
     const emit = (ev) => { if (!res.destroyed) res.write(JSON.stringify(ev) + '\n') }
+    // A closed tab or a new question shouldn't keep the GPU busy (and block
+    // training, which waits for the queue) with answers nobody will read.
+    const gone = new AbortController()
+    res.on('close', () => { if (!res.writableEnded) gone.abort() })
     const work = chatQueue.then(async () => {
+      if (gone.signal.aborted) return
       if (training()) return emit({ type: 'error', message: 'Training started. Compare again when it finishes.' })
       comparing = true
       try {
         if (chat.run !== body.run) await unloadChat()
         chat.run = body.run
         for (const side of ['base', 'tuned']) {
+          if (gone.signal.aborted) return
           if (!chat[side]) {
             emit({ type: 'stage', side, stage: 'loading' })
             const loaded = await loadForChat({ sdk: s, runDir: dir, withAdapter: side === 'tuned', device })
@@ -319,7 +333,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           }
           emit({ type: 'stage', side, stage: 'answering' })
           const history = [...(chat.system ? [{ role: 'system', content: chat.system }] : []), { role: 'user', content: prompt }]
-          const text = await reply({ sdk: s, modelId: chat[side], history, onText: (t) => emit({ type: 'delta', side, text: t }) })
+          const text = await reply({ sdk: s, modelId: chat[side], history, signal: gone.signal, onText: (t) => emit({ type: 'delta', side, text: t }) })
           emit({ type: 'answer', side, text })
         }
         emit({ type: 'done' })
@@ -395,7 +409,11 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           })
         }
         if (p === '/api/runs') return send(res, 200, await listRuns())
-        if (p.startsWith('/api/runs/')) return send(res, 200, await runDetails(decodeURIComponent(p.slice('/api/runs/'.length))))
+        if (p.startsWith('/api/runs/')) {
+          let name
+          try { name = decodeURIComponent(p.slice('/api/runs/'.length)) } catch { throw fail(400, 'bad run name') }
+          return send(res, 200, await runDetails(name))
+        }
         if (p === '/api/examples') return send(res, 200, await examples())
         if (!p.startsWith('/api/')) return await staticFile(res, p)
       }
@@ -427,6 +445,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     },
     /** Pause any training (so it can be resumed), unload models and stop. */
     async close () {
+      closing = true // refuse new training and comparisons from here on
       // A pause can only start once the first step runs, so wait for it.
       while (training() && job.status === 'loading') await new Promise((resolve) => setTimeout(resolve, 200))
       if (training() && job.status === 'training') job.ac.abort()
