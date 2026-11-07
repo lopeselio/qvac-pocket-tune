@@ -445,41 +445,51 @@ function wav (samples = 160) {
   return b
 }
 
+const postWav = (url, bytes, model) => call(url + 'api/transcribe' + (model ? `?model=${model}` : ''), { method: 'POST', body: bytes, headers: { 'content-type': 'audio/wav' } })
+
 function sttSdk () {
   const { sdk, calls } = fakeSdk()
   const seen = []
+  const loads = []
   const realLoad = sdk.loadModel
   sdk.WHISPER_EN_BASE_Q8_0 = { name: 'WHISPER_EN_BASE_Q8_0' }
   sdk.WHISPER_BASE_Q8_0 = { name: 'WHISPER_BASE_Q8_0' }
-  sdk.loadModel = async (o) => (o.modelSrc?.name?.startsWith('WHISPER') ? (calls.push(['loadModel', o.modelSrc.name]), `stt:${o.modelSrc.name}`) : realLoad(o))
+  sdk.loadModel = async (o) => {
+    if (!o.modelSrc?.name?.startsWith('WHISPER')) return realLoad(o)
+    calls.push(['loadModel', o.modelSrc.name])
+    loads.push(o)
+    o.onProgress?.({ percentage: 100 })
+    return `stt:${o.modelSrc.name}`
+  }
   sdk.transcribe = async ({ modelId, audioChunk }) => {
-    const { readFile: rf } = await import('node:fs/promises')
-    seen.push({ modelId, file: audioChunk, bytes: (await rf(audioChunk)).length })
+    seen.push({ modelId, audioChunk })
     return ' My favourite food is tacos. '
   }
-  return { sdk, calls, seen }
+  return { sdk, calls, seen, loads }
 }
 
-test('transcribes a WAV clip locally, reuses the model, and deletes the temp file', async (t) => {
-  const { sdk, calls, seen } = sttSdk()
+test('transcribes a WAV clip from memory, with the right language, and reuses the model', async (t) => {
+  const { sdk, calls, seen, loads } = sttSdk()
   await withServer(t, { loadSdk: async () => sdk }, async (url) => {
-    const audio = wav().toString('base64')
-    const res = await post(url + 'api/transcribe', { audio })
+    const res = await postWav(url, wav())
     assert.equal(res.status, 200)
     assert.equal(res.json().text, 'My favourite food is tacos.')
     assert.equal(seen[0].modelId, 'stt:WHISPER_EN_BASE_Q8_0')
-    assert.equal(seen[0].bytes, wav().length)
-    const { access } = await import('node:fs/promises')
-    await assert.rejects(access(seen[0].file)) // gone right after
-    await post(url + 'api/transcribe', { audio })
+    // The bytes go to QVAC as a buffer: no temp file on disk.
+    assert.ok(Buffer.isBuffer(seen[0].audioChunk))
+    assert.ok(seen[0].audioChunk.equals(wav()))
+    assert.deepEqual(loads[0].modelConfig, { language: 'en' })
+    await postWav(url, wav())
     assert.equal(calls.filter((c) => c[0] === 'loadModel').length, 1) // kept loaded
-    await post(url + 'api/transcribe', { audio, model: 'multi' })
+    await postWav(url, wav(), 'multi')
     assert.equal(seen.at(-1).modelId, 'stt:WHISPER_BASE_Q8_0')
+    // Without 'auto' the multilingual model would be forced to English.
+    assert.deepEqual(loads.at(-1).modelConfig, { language: 'auto' })
     assert.equal((await call(url + 'api/state')).json().stt.loaded, 'multi')
   })
 })
 
-test('rejects clips that are not WAV, unknown models, and transcribing during training', async (t) => {
+test('voice: rejects non-WAV, the wrong content type, unknown models, oversize clips and training', async (t) => {
   const g = gated()
   const { sdk } = sttSdk()
   const trainer = fakeSdk({ ticks: 5, gate: g.gate })
@@ -488,13 +498,15 @@ test('rejects clips that are not WAV, unknown models, and transcribing during tr
   t.after(() => rm(runsDir, { recursive: true, force: true }))
   const ui = createUiServer({ runsDir, loadSdk: async () => sdk })
   const url = await ui.listen(0)
-  assert.equal((await post(url + 'api/transcribe', { audio: Buffer.from('not audio at all, really').toString('base64') })).status, 400)
-  assert.equal((await post(url + 'api/transcribe', { audio: wav().toString('base64'), model: 'klingon' })).status, 400)
-  assert.equal((await post(url + 'api/transcribe', {})).status, 400)
+  assert.equal((await postWav(url, Buffer.from('not audio at all, really'))).status, 400)
+  assert.equal((await postWav(url, wav(), 'klingon')).status, 400)
+  // A cross-site form can only send simple content types: refused.
+  assert.equal((await call(url + 'api/transcribe', { method: 'POST', body: wav(), headers: { 'content-type': 'text/plain' } })).status, 415)
+  assert.equal((await postWav(url, wav(16000 * 200))).status, 413) // 200 s
   await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
   await post(url + 'api/train', { run: 'r', model: 'tiny' })
   await g.waiting()
-  assert.equal((await post(url + 'api/transcribe', { audio: wav().toString('base64') })).status, 409)
+  assert.equal((await postWav(url, wav())).status, 409)
   await g.step()
   const closing = ui.close()
   await until(() => trainer.sdk.pauseCalled)
@@ -502,10 +514,35 @@ test('rejects clips that are not WAV, unknown models, and transcribing during tr
   await closing
 })
 
+test('a failed speech model load is a clear 503', async (t) => {
+  const { sdk } = sttSdk()
+  sdk.loadModel = async () => { throw new Error('network down') }
+  await withServer(t, { loadSdk: async () => sdk }, async (url) => {
+    const res = await postWav(url, wav())
+    assert.equal(res.status, 503)
+    assert.match(res.json().error, /speech model: network down/)
+  })
+})
+
+test('speech and chat models unload each other', async (t) => {
+  const { sdk, calls } = sttSdk()
+  await withServer(t, { loadSdk: async () => sdk }, async (url, _ui, runsDir) => {
+    await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+    await writeFile(join(runsDir, 'r', 'run.json'), JSON.stringify({ status: 'COMPLETED', mode: 'sft', model: { src: 'x/Qwen3-0.6B-Q4_0.gguf' }, options: { contextLength: 512 } }))
+    await writeFile(join(runsDir, 'r', 'trained-lora-adapter.gguf'), 'A')
+    await post(url + 'api/compare', { run: 'r', prompt: 'hi' })
+    await postWav(url, wav())
+    assert.deepEqual((await call(url + 'api/state')).json().chat.loaded, [])
+    await post(url + 'api/compare', { run: 'r', prompt: 'hi' })
+    assert.equal((await call(url + 'api/state')).json().stt.loaded, null)
+    assert.ok(calls.some((c) => c[0] === 'unloadModel' && c[1] === 'stt:WHISPER_EN_BASE_Q8_0'))
+  })
+})
+
 test('training unloads the speech model first, to free memory', async (t) => {
   const { sdk, calls } = sttSdk()
   await withServer(t, { loadSdk: async () => sdk }, async (url, ui) => {
-    await post(url + 'api/transcribe', { audio: wav().toString('base64') })
+    await postWav(url, wav())
     await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
     await post(url + 'api/train', { run: 'r', model: 'tiny' })
     await ui.jobDone
