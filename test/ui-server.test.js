@@ -434,3 +434,84 @@ test('resuming after a restart continues the saved curve; a fresh start replaces
     assert.equal((await call(url + 'api/runs/r')).json().curve.length, saved + 2)
   } finally { await second.close() }
 })
+
+/** A tiny valid 16 kHz mono 16-bit WAV (0.01 s of silence). */
+function wav (samples = 160) {
+  const b = Buffer.alloc(44 + samples * 2)
+  b.write('RIFF', 0, 'latin1'); b.writeUInt32LE(36 + samples * 2, 4); b.write('WAVE', 8, 'latin1')
+  b.write('fmt ', 12, 'latin1'); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22)
+  b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34)
+  b.write('data', 36, 'latin1'); b.writeUInt32LE(samples * 2, 40)
+  return b
+}
+
+function sttSdk () {
+  const { sdk, calls } = fakeSdk()
+  const seen = []
+  const realLoad = sdk.loadModel
+  sdk.WHISPER_EN_BASE_Q8_0 = { name: 'WHISPER_EN_BASE_Q8_0' }
+  sdk.WHISPER_BASE_Q8_0 = { name: 'WHISPER_BASE_Q8_0' }
+  sdk.loadModel = async (o) => (o.modelSrc?.name?.startsWith('WHISPER') ? (calls.push(['loadModel', o.modelSrc.name]), `stt:${o.modelSrc.name}`) : realLoad(o))
+  sdk.transcribe = async ({ modelId, audioChunk }) => {
+    const { readFile: rf } = await import('node:fs/promises')
+    seen.push({ modelId, file: audioChunk, bytes: (await rf(audioChunk)).length })
+    return ' My favourite food is tacos. '
+  }
+  return { sdk, calls, seen }
+}
+
+test('transcribes a WAV clip locally, reuses the model, and deletes the temp file', async (t) => {
+  const { sdk, calls, seen } = sttSdk()
+  await withServer(t, { loadSdk: async () => sdk }, async (url) => {
+    const audio = wav().toString('base64')
+    const res = await post(url + 'api/transcribe', { audio })
+    assert.equal(res.status, 200)
+    assert.equal(res.json().text, 'My favourite food is tacos.')
+    assert.equal(seen[0].modelId, 'stt:WHISPER_EN_BASE_Q8_0')
+    assert.equal(seen[0].bytes, wav().length)
+    const { access } = await import('node:fs/promises')
+    await assert.rejects(access(seen[0].file)) // gone right after
+    await post(url + 'api/transcribe', { audio })
+    assert.equal(calls.filter((c) => c[0] === 'loadModel').length, 1) // kept loaded
+    await post(url + 'api/transcribe', { audio, model: 'multi' })
+    assert.equal(seen.at(-1).modelId, 'stt:WHISPER_BASE_Q8_0')
+    assert.equal((await call(url + 'api/state')).json().stt.loaded, 'multi')
+  })
+})
+
+test('rejects clips that are not WAV, unknown models, and transcribing during training', async (t) => {
+  const g = gated()
+  const { sdk } = sttSdk()
+  const trainer = fakeSdk({ ticks: 5, gate: g.gate })
+  sdk.finetune = trainer.sdk.finetune
+  const runsDir = await mkdtemp(join(tmpdir(), 'pt-ui-'))
+  t.after(() => rm(runsDir, { recursive: true, force: true }))
+  const ui = createUiServer({ runsDir, loadSdk: async () => sdk })
+  const url = await ui.listen(0)
+  assert.equal((await post(url + 'api/transcribe', { audio: Buffer.from('not audio at all, really').toString('base64') })).status, 400)
+  assert.equal((await post(url + 'api/transcribe', { audio: wav().toString('base64'), model: 'klingon' })).status, 400)
+  assert.equal((await post(url + 'api/transcribe', {})).status, 400)
+  await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+  await post(url + 'api/train', { run: 'r', model: 'tiny' })
+  await g.waiting()
+  assert.equal((await post(url + 'api/transcribe', { audio: wav().toString('base64') })).status, 409)
+  await g.step()
+  const closing = ui.close()
+  await until(() => trainer.sdk.pauseCalled)
+  g.release()
+  await closing
+})
+
+test('training unloads the speech model first, to free memory', async (t) => {
+  const { sdk, calls } = sttSdk()
+  await withServer(t, { loadSdk: async () => sdk }, async (url, ui) => {
+    await post(url + 'api/transcribe', { audio: wav().toString('base64') })
+    await post(url + 'api/prep', { name: 'r', sources: [{ name: 'f.csv', text: FAQ }] })
+    await post(url + 'api/train', { run: 'r', model: 'tiny' })
+    await ui.jobDone
+    const unloadIdx = calls.findIndex((c) => c[0] === 'unloadModel' && c[1] === 'stt:WHISPER_EN_BASE_Q8_0')
+    const trainIdx = calls.findIndex((c) => c[0] === 'finetune')
+    assert.ok(unloadIdx !== -1 && unloadIdx < trainIdx)
+    assert.equal((await call(url + 'api/state')).json().stt.loaded, null)
+  })
+})
