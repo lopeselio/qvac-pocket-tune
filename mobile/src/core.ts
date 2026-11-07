@@ -3,6 +3,7 @@ export {
   buildDatasetFromTexts,
   buildFinetuneOptions,
   DEFAULT_HYPER,
+  CHAT_SAMPLING,
   PRESETS,
   checkFinetunable,
   ensureFits,

@@ -1,6 +1,6 @@
 import * as qvac from '@qvac/sdk'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
-import { buildFinetuneOptions, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter } from './core'
+import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter } from './core'
 import { findAdapter, runPaths, saveMeta, type RunMeta } from './runs'
 
 // Everything here runs on the phone: the SDK spawns a Bare worklet that hosts
@@ -131,7 +131,8 @@ export async function compareRun (meta: RunMeta, prompt: string, onUpdate: (r: {
     onUpdate({ ...out })
     const modelId: string = await sdk.loadModel({
       modelSrc: d,
-      modelConfig: { device: 'gpu', ctx_size: ctx, ...(withAdapter ? { lora: meta.adapter } : {}) }
+      // Same sampling as the CLI's compare, for base and tuned alike.
+      modelConfig: { device: 'gpu', ctx_size: ctx, ...CHAT_SAMPLING, ...(withAdapter ? { lora: meta.adapter } : {}) }
     })
     try {
       out.stage = withAdapter ? 'tuned' : 'base'
