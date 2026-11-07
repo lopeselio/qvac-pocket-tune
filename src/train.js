@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile, access } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile, access } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -59,6 +59,7 @@ export function finetuneOptions ({ runDir, data, hyper, hasEval }) {
  * @param {boolean} [p.resume]
  * @param {boolean} [p.force]    skip the fine-tunability check
  * @param {'gpu'|'cpu'} [p.device]
+ * @param {boolean} [p.keepCheckpoints] keep checkpoints/ after the run completes
  * @param {AbortSignal} [p.signal] abort → pause at the next step (resumable)
  *   onEvent also gets { type: 'unload-failed', message, afterPause } when the
  *   model couldn't be unloaded at the end (QVAC refuses after a pause).
@@ -73,7 +74,7 @@ export async function hasPauseCheckpoint (run) {
   } catch { return false }
 }
 
-export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume = false, force = false, device = 'gpu', signal, onEvent = () => {} }) {
+export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume = false, force = false, device = 'gpu', keepCheckpoints = false, signal, onEvent = () => {} }) {
   runDir = resolve(runDir)
   const runPath = join(runDir, RUN_FILE)
   let run
@@ -171,6 +172,10 @@ export async function train ({ sdk, runDir, model = 'tiny', hyper = {}, resume =
     const adapter = await findAdapter(runDir)
     if (!adapter) throw new Error(`Training completed but no adapter .gguf appeared in ${runDir}`)
     const card = await writeCard(runDir, run, adapter)
+    // Checkpoints are only good for resuming (and QVAC resumes only from a
+    // pause checkpoint), so a finished run doesn't need them. They're often
+    // 20-50x the size of the adapter.
+    if (!keepCheckpoints) await rm(run.options.checkpointSaveDir, { recursive: true, force: true }).catch(() => {})
     return { status: 'COMPLETED', run, adapter, card }
   } finally {
     signal?.removeEventListener('abort', onAbort)
