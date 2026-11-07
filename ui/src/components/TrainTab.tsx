@@ -40,7 +40,10 @@ export function TrainTab ({ run, state, ticks, onChanged, onCompare, toast }: Pr
       </Card>
 
       <Card title='Training loss' aside={job?.resume && live && !job.carried ? <span className='muted small'>since resume</span> : undefined}>
-        {job || ticks.length ? <LossChart ticks={job ? ticks : []} /> : <div className='chart-empty'>{run.status === 'COMPLETED' ? 'Trained in an earlier session, so there is no curve here. The final metrics are on the left.' : 'Start training to see the loss fall in real time.'}</div>}
+        {/* Live ticks while this session trains the run, else the curve saved with it. */}
+        {(job ? ticks : run.curve).length
+          ? <LossChart ticks={job ? ticks : run.curve} />
+          : <div className='chart-empty'>{run.status === 'COMPLETED' ? 'This run was trained before curves were saved. The final metrics are on the left.' : 'Start training to see the loss fall in real time.'}</div>}
         <p className='hint'>Loss is how surprised the model is by your answers. Falling loss means it's picking up your voice. Validation loss uses examples it never trains on, so it shows whether that carries over to new questions.</p>
       </Card>
     </div>
