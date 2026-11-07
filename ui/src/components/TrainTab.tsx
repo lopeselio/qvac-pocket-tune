@@ -30,7 +30,7 @@ export function TrainTab ({ run, state, ticks, onChanged, onCompare, toast }: Pr
         {live && job && <LiveStatus job={job} run={run} ticks={ticks} toast={toast} onChanged={onChanged} />}
         {!live && run.status === 'PAUSED' && (
           <div className='stack'>
-            <p>Paused at a checkpoint. Resuming continues from the next step with the same settings{run.hyper ? ` (${run.hyper.epochs} epochs, lr ${run.hyper.lr})` : ''}.</p>
+            <p>Paused at a checkpoint. Resuming continues from the next step with the same settings{run.hyper ? ` (${run.hyper.epochs} epoch${run.hyper.epochs === 1 ? '' : 's'}, lr ${run.hyper.lr})` : ''}.</p>
             {run.resumable
               ? <ResumeButton run={run} disabled={!state.qvac || !!otherJob} onStarted={onChanged} toast={toast} />
               : <p className='warn-note'>No pause checkpoint found, so this run can't be resumed.</p>}
@@ -39,7 +39,7 @@ export function TrainTab ({ run, state, ticks, onChanged, onCompare, toast }: Pr
         {!live && run.status === 'COMPLETED' && <Result run={run} job={job} onCompare={onCompare} />}
       </Card>
 
-      <Card title='Training loss' aside={job?.resume && live ? <span className='muted small'>since resume</span> : undefined}>
+      <Card title='Training loss' aside={job?.resume && live && !job.carried ? <span className='muted small'>since resume</span> : undefined}>
         {job || ticks.length ? <LossChart ticks={job ? ticks : []} /> : <div className='chart-empty'>{run.status === 'COMPLETED' ? 'Trained in an earlier session, so there is no curve here. The final metrics are on the left.' : 'Start training to see the loss fall in real time.'}</div>}
         <p className='hint'>Loss is how surprised the model is by your answers. Falling loss means it's picking up your voice. Validation loss uses examples it never trains on, so it shows whether that carries over to new questions.</p>
       </Card>
