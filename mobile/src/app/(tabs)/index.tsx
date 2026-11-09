@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Switch, View } from 'react-native'
+import { Alert, Pressable, Switch, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
 import { router } from 'expo-router'
@@ -83,6 +83,9 @@ export default function DataScreen () {
     <Screen>
       <H1>Pocket Tune</H1>
       <P dim>Teach a small model your voice. Your files and the training stay on this phone.</P>
+      <Pressable onPress={() => router.push('/onboarding')} accessibilityRole='link' hitSlop={8} style={{ alignSelf: 'flex-start' }}>
+        <P color={colors.accent}>How Pocket Tune works →</P>
+      </Pressable>
 
       {runs.length > 0 && (
         <Card title='Your runs'>
