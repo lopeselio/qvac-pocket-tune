@@ -11,8 +11,10 @@ import { appendTranscript, audioExtensionOk, AUDIO_EXTENSIONS, MAX_CLIP_BYTES, M
 // dictate notes, Whisper transcribes on this phone, you fix the transcript and
 // add it. Audio files are deleted once transcribed; only the text is kept.
 
-// Whisper works at 16 kHz mono, so record that and keep files small.
-const RECORDING: RecordingOptions = { ...RecordingPresets.HIGH_QUALITY, sampleRate: 16000, numberOfChannels: 1, bitRate: 64000 }
+// Expo's standard preset (44.1 kHz AAC). iOS rejects some custom combinations
+// (AAC at 16 kHz with 64 kbps fails to prepare), and QVAC's decoder resamples
+// to the 16 kHz mono Whisper needs anyway. Three minutes is about 3 MB.
+const RECORDING: RecordingOptions = RecordingPresets.HIGH_QUALITY
 
 type Phase = 'idle' | 'preparing' | 'recording' | 'transcribing'
 
