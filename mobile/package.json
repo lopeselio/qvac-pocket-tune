@@ -24,6 +24,7 @@
     "@scure/bip39": "^2.4.0",
     "bare-rpc": "^1.5.0",
     "expo": "~54.0.36",
+    "expo-asset": "~12.0.14",
     "expo-audio": "~1.1.1",
     "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.14",
