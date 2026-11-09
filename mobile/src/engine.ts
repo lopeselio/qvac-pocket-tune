@@ -1,5 +1,6 @@
 import * as qvac from '@qvac/sdk'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
+import { Platform } from 'react-native'
 import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter, withThinkingFallback } from './core'
 import { findAdapter, runPaths, saveMeta, toPosix, type RunMeta } from './runs'
 import { SPEECH_MODELS, type SpeechKey } from './voice'
@@ -37,6 +38,14 @@ function descriptor (preset: PresetKey) {
 }
 
 let active: { modelId: string, pausing: boolean } | null = null
+
+/**
+ * Where training runs. On iOS, QVAC Fabric 0.25's Metal backend fails a
+ * training step ("ggml_opt: backend graph compute failed", ggml-opt.cpp:1014)
+ * and ggml aborts the app, seen on an iPhone 13 Pro Max. The CPU backend runs
+ * the same graph without Metal. Chatting and comparing still use the GPU.
+ */
+export const TRAIN_DEVICE: 'gpu' | 'cpu' = Platform.OS === 'ios' ? 'cpu' : 'gpu'
 
 // ---------- speech ----------
 // Whisper stays loaded between clips (a clip then takes well under a second)
@@ -121,7 +130,7 @@ async function trainLocked (meta: RunMeta, opts: { preset: PresetKey, epochs: nu
     : buildFinetuneOptions({ runDir: paths.dir, mode: meta.mode, trainPath: paths.train, evalPath: paths.eval, hasEval: paths.hasEval, hyper: { numberOfEpochs: opts.epochs } })
   const ctx = Number((options as any).contextLength ?? 512)
 
-  const load = { modelSrc: d, modelConfig: { device: 'gpu', ctx_size: ctx } }
+  const load = { modelSrc: d, modelConfig: { device: TRAIN_DEVICE, ctx_size: ctx } }
   const fit = await ensureFits(sdk, [{ ...load, modelType: 'llamacpp-completion' }], { force: opts.force })
   opts.onEvent({ type: 'fit', lines: describeFit(fit) })
 
