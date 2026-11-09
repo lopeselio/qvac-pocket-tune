@@ -202,3 +202,19 @@ footer a { color: var(--accent); }
 .card-b > .row.row-wrap { margin: 4px 0 16px; }
 .seg button:disabled { opacity: .45; cursor: default; }
 .small-tag { margin-left: 8px; font-size: 11px; padding: 1px 8px; vertical-align: 1px; }
+
+/* ---------- sharing (qvac-seed) ---------- */
+.receive { margin-top: 18px; }
+.share-link { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.share-link.current { border-color: var(--accent); }
+.share-link + .share-link { margin-top: 10px; }
+.share-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.share-url { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.share-url .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.btn.small-btn { padding: 5px 12px; font-size: 13px; border-radius: 9px; }
+.picks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.pick { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: inherit; font: inherit; cursor: pointer; }
+.pick[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.pick-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; width: 100%; }
+.quote.small { font-size: 13px; padding: 6px 10px; }
+.break { overflow-wrap: anywhere; margin: 0; }

@@ -4,19 +4,29 @@ import { useServerState } from './useServer'
 import { NewRun, RunData } from './components/DataTab'
 import { TrainTab } from './components/TrainTab'
 import { CompareTab } from './components/CompareTab'
+import { ShareTab } from './components/ShareTab'
+import { ReceiveCard } from './components/ReceiveCard'
 import { STATUS_LABEL, StatusDot } from './components/common'
 
-type Tab = 'data' | 'train' | 'compare'
+type Tab = 'data' | 'train' | 'compare' | 'share'
 const TABS: { id: Tab, label: string }[] = [
   { id: 'data', label: '1 · Data' },
   { id: 'train', label: '2 · Train' },
-  { id: 'compare', label: '3 · Compare' }
+  { id: 'compare', label: '3 · Compare' },
+  { id: 'share', label: '4 · Share' }
 ]
 
 // #run/tab, so a reload (or a demo) lands on the same view.
 function readHash (): { run: string | null, tab: Tab } {
   const [run, tab] = decodeURIComponent(location.hash.slice(1)).split('/')
   return { run: run || null, tab: (TABS.some((t) => t.id === tab) ? tab : 'data') as Tab }
+}
+
+/** Why a tab can't be opened for this run, or null if it can. */
+function tabDisabled (tab: Tab, run: RunDetails): string | null {
+  if ((tab === 'compare' || tab === 'share') && !run.hasAdapter) return 'Train this run first'
+  if (tab === 'train' && run.received) return 'A received adapter comes without its training data, so it can\'t be retrained here'
+  return null
 }
 
 export function App () {
@@ -100,6 +110,7 @@ export function App () {
 
       <nav className='runs' aria-label='Runs'>
         <button className='chip new' aria-pressed={selected === null} onClick={() => select(null)}>+ New run</button>
+        <button className='chip' onClick={() => { select(null); setTimeout(() => document.getElementById('receive')?.scrollIntoView({ behavior: 'smooth' }), 50) }} title='Paste a pear:// link someone shared'>⇣ Receive</button>
         {runs.map((r) => (
           <button key={r.name} className='chip' aria-pressed={selected === r.name} onClick={() => select(r.name, r.hasAdapter ? 'compare' : r.status === 'PAUSED' || isActive(r.status) ? 'train' : 'data')} title={STATUS_LABEL[r.status]}>
             <StatusDot status={r.status} />{r.name}
@@ -108,7 +119,19 @@ export function App () {
       </nav>
 
       {selected === null && state && (
-        <NewRun examples={examples} runs={runs} state={state} onCreated={(d) => { void loadRuns(); setDetails(d); select(d.name, 'data'); toast(`Prepared “${d.name}”.`) }} />
+        <>
+          <NewRun examples={examples} runs={runs} state={state} onCreated={(d) => { void loadRuns(); setDetails(d); select(d.name, 'data'); toast(`Prepared “${d.name}”.`) }} />
+          <ReceiveCard
+            runs={runs}
+            state={state}
+            onReceived={(d) => {
+              void loadRuns()
+              setDetails(d)
+              select(d.name, 'compare')
+              toast(d.warnings[0] ?? `Received “${d.name}”, verified. Ask both models something.`)
+            }}
+          />
+        </>
       )}
 
       {selected !== null && run && state && (
@@ -121,8 +144,8 @@ export function App () {
                 aria-selected={tab === t.id}
                 className='tab'
                 onClick={() => setTab(t.id)}
-                disabled={t.id === 'compare' && !run.hasAdapter}
-                title={t.id === 'compare' && !run.hasAdapter ? 'Train this run first' : undefined}
+                disabled={tabDisabled(t.id, run) !== null}
+                title={tabDisabled(t.id, run) ?? undefined}
               >{t.label}
               </button>
             ))}
@@ -132,6 +155,7 @@ export function App () {
             {tab === 'data' && <RunData run={run} />}
             {tab === 'train' && <TrainTab run={run} state={state} ticks={ticks} toast={toast} onChanged={() => { refresh(); loadDetails(run.name); void loadRuns() }} onCompare={() => setTab('compare')} />}
             {tab === 'compare' && <CompareTab run={run} state={state} onSaved={() => loadDetails(run.name)} />}
+            {tab === 'share' && <ShareTab run={run} toast={toast} />}
           </div>
         </>
       )}
