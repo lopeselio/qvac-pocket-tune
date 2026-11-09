@@ -1,10 +1,14 @@
 # Pocket Tune mobile
 
-The Pocket Tune flow on your phone: **pick your files → build a scrubbed dataset → fine-tune a LoRA adapter on the phone's GPU → compare it with the base model.** Built with Expo (SDK 54) and the [QVAC SDK](https://docs.qvac.tether.io/resources/tutorials/expo). Nothing leaves the device except the one-time base-model download.
+The Pocket Tune flow on your phone: **pick your files or answer questions out loud → build a scrubbed dataset → fine-tune a LoRA adapter on the phone → compare it with the base model.** Built with Expo (SDK 54) and the [QVAC SDK](https://docs.qvac.tether.io/resources/tutorials/expo). Nothing leaves the device except the one-time base-model download.
+
+![Pocket Tune mobile: first-run guide, answering questions out loud, checking the transcript, training on the phone, and comparing the base and tuned models](../docs/mobile/screens.png)
+
+*Mockups of the app's screens, drawn from its real components and wording (source: [docs/mobile/mockups.html](../docs/mobile/mockups.html)); the run numbers are illustrative and the answers are real CLI output from the [pocket-tune README](../README.md).*
 
 | Data | Train | Try |
 |---|---|---|
-| Pick a WhatsApp export, Q&A CSV, chat JSONL or notes (or use the bundled pirate sample). Personal data is scrubbed before anything is written. | Choose a phone-friendly base model (Qwen3 0.6B/1.7B, BitNet 0.7B/1B), check memory *before* downloading, and watch loss and accuracy live. Pause any time and resume later from the checkpoint. | Ask one prompt and see the base model's answer next to your adapter's. |
+| Pick a WhatsApp export, Q&A CSV, chat JSONL or notes (or use the bundled pirate sample), or answer questions out loud: Whisper transcribes on the phone and you edit the transcript. Personal data is scrubbed before anything is written. | Choose a phone-friendly base model (Qwen3 0.6B/1.7B, BitNet 0.7B/1B), check memory *before* downloading, and watch loss and accuracy live. Training runs on the GPU on Android and on the CPU on iOS, where QVAC's Metal training step currently aborts. Pause any time and resume later from the checkpoint. | Ask one prompt and see the base model's answer next to your adapter's. |
 
 The parsing, scrubbing, dataset and fine-tune-option code is the **same module the CLI uses** (`../src/core.js`). Metro bundles it straight from the parent folder, so the app and the CLI can't drift apart.
 
