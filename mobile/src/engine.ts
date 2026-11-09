@@ -45,6 +45,10 @@ let active: { modelId: string, pausing: boolean } | null = null
 let speech: { key: SpeechKey, modelId: string } | null = null
 let speechQueue: Promise<unknown> = Promise.resolve()
 
+// Set synchronously when training or a comparison starts (before any download
+// or load), so speech can never load alongside them.
+let busy: 'training' | 'comparing' | null = null
+
 export async function releaseSpeech () {
   const s = speech
   speech = null
@@ -57,7 +61,8 @@ export async function releaseSpeech () {
  */
 export function transcribeFile (uri: string, key: SpeechKey, onDownload?: (percentage: number) => void): Promise<{ text: string, ms: number }> {
   const work = speechQueue.then(async () => {
-    if (active) throw new Error('Training is running. Record when it finishes or after pausing.')
+    if (busy === 'training') throw new Error('Training is running. Record when it finishes or after pausing.')
+    if (busy === 'comparing') throw new Error('Comparing answers. Record when it finishes.')
     if (speech?.key !== key) {
       await releaseSpeech()
       const m = SPEECH_MODELS[key]
@@ -93,9 +98,18 @@ export async function memoryCheck (preset: PresetKey, ctx = 512): Promise<string
  * Train or resume. Resolves when training stops (completed, paused or cancelled).
  */
 export async function trainRun (meta: RunMeta, opts: { preset: PresetKey, epochs: number, resume?: boolean, force?: boolean, onEvent: (e: EngineEvent) => void }): Promise<RunMeta> {
-  if (active) throw new Error('Training is already running')
-  await speechQueue
-  await releaseSpeech()
+  if (busy) throw new Error(busy === 'training' ? 'Training is already running' : 'Wait for the comparison to finish')
+  busy = 'training'
+  try {
+    await speechQueue
+    await releaseSpeech()
+    return await trainLocked(meta, opts)
+  } finally {
+    busy = null
+  }
+}
+
+async function trainLocked (meta: RunMeta, opts: { preset: PresetKey, epochs: number, resume?: boolean, force?: boolean, onEvent: (e: EngineEvent) => void }): Promise<RunMeta> {
   const presetKey = opts.resume && meta.model ? (Object.keys(PRESETS).find((k) => PRESETS[k as PresetKey].constant === meta.model) as PresetKey ?? opts.preset) : opts.preset
   const { name, d } = descriptor(presetKey)
   const check = checkFinetunable(d)
@@ -148,7 +162,7 @@ export async function pauseTraining (onEvent?: (e: EngineEvent) => void) {
   await sdk.finetune({ modelId: active.modelId, operation: 'pause' })
 }
 
-export const isTraining = () => active !== null
+export const isTraining = () => busy === 'training'
 
 type Msg = { role: string, content: string }
 
@@ -178,9 +192,19 @@ async function replyOnce (modelId: string, history: Msg[], onText?: (t: string) 
  */
 export async function compareRun (meta: RunMeta, prompt: string, onUpdate: (r: { base: string, tuned: string, stage: string }) => void) {
   if (!meta.model || !meta.adapter) throw new Error('Train this run first')
-  await speechQueue
-  await releaseSpeech()
-  const d = sdk[meta.model]
+  if (busy) throw new Error(busy === 'training' ? 'Training is running. Compare when it finishes.' : 'A comparison is already running')
+  busy = 'comparing'
+  try {
+    await speechQueue
+    await releaseSpeech()
+    return await compareLocked(meta, prompt, onUpdate)
+  } finally {
+    busy = null
+  }
+}
+
+async function compareLocked (meta: RunMeta, prompt: string, onUpdate: (r: { base: string, tuned: string, stage: string }) => void) {
+  const d = sdk[meta.model as string] // checked in compareRun
   const ctx = Math.max(1024, Number((meta.options as any)?.contextLength ?? 512))
   const history = [...(meta.system ? [{ role: 'system', content: meta.system }] : []), { role: 'user', content: prompt }]
   const out = { base: '', tuned: '', stage: 'base' }
