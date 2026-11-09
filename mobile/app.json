@@ -40,7 +40,8 @@
           "installMissingPrebuilds": true
         }
       ],
-      "expo-router"
+      "expo-router",
+      "./plugins/with-ios-scene-lifecycle"
     ],
     "scheme": "pockettune"
   }
