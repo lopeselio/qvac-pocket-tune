@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { Alert, Pressable, Switch, View } from 'react-native'
+import { Alert, Pressable, Switch, Text, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
 import { router } from 'expo-router'
+import { VoiceInput } from '../../components/VoiceInput'
 import { buildDatasetFromTexts } from '../../core'
 import { saveDataset } from '../../runs'
 import { SAMPLE } from '../../sample'
 import { useRuns } from '../../state'
 import { Button, Card, Chips, colors, Field, H1, P, Screen } from '../../ui'
+import { lockedMode, uniqueName, voiceSources, type SpokenAnswer } from '../../voice'
 
 type Source = { name: string, text: string }
 type Kind = 'auto' | 'notes' | 'whatsapp' | 'chat-json' | 'qa-csv'
@@ -32,6 +34,15 @@ export default function DataScreen () {
   const [sources, setSources] = useState<Source[]>([])
   const [busy, setBusy] = useState(false)
   const [summary, setSummary] = useState<string[] | null>(null)
+  const [voiceQA, setVoiceQA] = useState<SpokenAnswer[]>([])
+  const [voiceNotes, setVoiceNotes] = useState<string[]>([])
+  const spoken = voiceQA.length + voiceNotes.length
+
+  // Like the web UI: the first spoken item names the run, without clobbering one.
+  function ensureName () {
+    if (!spoken && name === 'my-voice') setName(uniqueName('my-voice', runs.map((r) => r.name)))
+    setSummary(null)
+  }
 
   async function pick () {
     const res = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: ['text/*', 'application/json', 'text/csv', 'text/comma-separated-values'] })
@@ -59,7 +70,8 @@ export default function DataScreen () {
     setTimeout(() => {
       try {
         const ds = buildDatasetFromTexts(
-          sources.map((s) => ({ ...s, ...(kind !== 'auto' ? { type: kind } : {}) })),
+          // The type override is for picked files; spoken sources carry their own.
+          [...sources.map((s) => ({ ...s, ...(kind !== 'auto' ? { type: kind } : {}) })), ...voiceSources(voiceQA, voiceNotes)],
           { me: me.trim() || undefined, system: system.trim() || undefined, scrubPii: scrub, evalFraction: 0.15 }
         )
         const meta = saveDataset(name, ds, system.trim() || null)
@@ -104,6 +116,21 @@ export default function DataScreen () {
         <Chips options={KINDS} value={kind} onChange={setKind} />
       </Card>
 
+      <Card title='Or speak instead'>
+        <VoiceInput
+          lockedMode={lockedMode(voiceQA, voiceNotes)}
+          onAnswer={(q, a) => { ensureName(); setVoiceQA((v) => [...v, { q, a }]) }}
+          onNote={(text) => { ensureName(); setVoiceNotes((v) => [...v, text]) }}
+        />
+        {voiceQA.map((x, i) => (
+          <Spoken key={`qa${i}`} title={x.q} text={x.a} tag='spoken answer' onRemove={() => setVoiceQA((v) => v.filter((_, j) => j !== i))} />
+        ))}
+        {voiceNotes.map((n, i) => (
+          <Spoken key={`n${i}`} text={n} tag='spoken note' onRemove={() => setVoiceNotes((v) => v.filter((_, j) => j !== i))} />
+        ))}
+        {voiceQA.length > 0 && voiceQA.length < 20 && <P dim>{voiceQA.length} spoken answer{voiceQA.length > 1 ? 's' : ''}. Around 20 or more starts to give a recognisable voice.</P>}
+      </Card>
+
       <Card title='2 · Options'>
         <Field label='Run name' value={name} onChangeText={setName} autoCapitalize='none' />
         <Field label='Your name in the chat export (WhatsApp)' value={me} onChangeText={setMe} placeholder='e.g. Sam' />
@@ -114,7 +141,7 @@ export default function DataScreen () {
         </View>
       </Card>
 
-      <Button title='Build dataset' onPress={build} disabled={!sources.length} busy={busy} />
+      <Button title='Build dataset' onPress={build} disabled={!sources.length && !spoken} busy={busy} />
 
       {summary && (
         <Card title='Ready'>
@@ -123,5 +150,20 @@ export default function DataScreen () {
         </Card>
       )}
     </Screen>
+  )
+}
+
+function Spoken ({ title, text, tag, onRemove }: { title?: string, text: string, tag: string, onRemove: () => void }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        {title ? <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{title}</Text> : null}
+        <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>{text}</Text>
+        <Text style={{ color: colors.accent, fontSize: 12 }}>{tag}</Text>
+      </View>
+      <Pressable onPress={onRemove} hitSlop={10} accessibilityRole='button' accessibilityLabel={`Remove this ${tag}`}>
+        <Text style={{ color: colors.dim, fontSize: 22, lineHeight: 22 }}>×</Text>
+      </Pressable>
+    </View>
   )
 }
