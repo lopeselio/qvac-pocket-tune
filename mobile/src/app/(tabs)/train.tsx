@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Alert, View } from 'react-native'
 import { router } from 'expo-router'
 import { PRESETS } from '../../core'
-import { memoryCheck, pauseTraining, trainRun, type EngineEvent, type PresetKey, type Tick } from '../../engine'
+import { memoryCheck, pauseTraining, TRAIN_DEVICE, trainRun, type EngineEvent, type PresetKey, type Tick } from '../../engine'
 import { useRuns } from '../../state'
 import { Button, Card, Chips, colors, H1, P, Progress, Screen } from '../../ui'
 
@@ -102,7 +102,7 @@ export default function TrainScreen () {
       {(busy || tick) && (
         <Card title='Progress'>
           {phase === 'downloading' && <><P>Downloading base model… {Math.round(download * 100)}%</P><Progress value={download} /></>}
-          {phase === 'loading' && <P>Loading model on the GPU…</P>}
+          {phase === 'loading' && <P>Loading model on the {TRAIN_DEVICE === 'gpu' ? 'GPU' : 'CPU'}…</P>}
           {tick && (
             <>
               <Progress value={batchProgress} />
