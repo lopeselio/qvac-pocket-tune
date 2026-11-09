@@ -1,7 +1,8 @@
 import * as qvac from '@qvac/sdk'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { buildFinetuneOptions, CHAT_SAMPLING, checkFinetunable, checkFit, describeFit, ensureFits, PRESETS, ThinkFilter, withThinkingFallback } from './core'
-import { findAdapter, runPaths, saveMeta, type RunMeta } from './runs'
+import { findAdapter, runPaths, saveMeta, toPosix, type RunMeta } from './runs'
+import { SPEECH_MODELS, type SpeechKey } from './voice'
 
 // Everything here runs on the phone: the SDK spawns a Bare worklet that hosts
 // QVAC Fabric (llama.cpp fork with LoRA training on Vulkan/Metal).
@@ -37,6 +38,50 @@ function descriptor (preset: PresetKey) {
 
 let active: { modelId: string, pausing: boolean } | null = null
 
+// ---------- speech ----------
+// Whisper stays loaded between clips (a clip then takes well under a second)
+// and is unloaded before training or comparing, so models never share memory.
+
+let speech: { key: SpeechKey, modelId: string } | null = null
+let speechQueue: Promise<unknown> = Promise.resolve()
+
+export async function releaseSpeech () {
+  const s = speech
+  speech = null
+  if (s) await sdk.unloadModel({ modelId: s.modelId, clearStorage: false }).catch(() => {})
+}
+
+/**
+ * Transcribe an audio file (m4a, mp3, wav…) on this phone. QVAC decodes it
+ * with its own FFmpeg, so recordings and voice memos go in as they are.
+ */
+export function transcribeFile (uri: string, key: SpeechKey, onDownload?: (percentage: number) => void): Promise<{ text: string, ms: number }> {
+  const work = speechQueue.then(async () => {
+    if (active) throw new Error('Training is running. Record when it finishes or after pausing.')
+    if (speech?.key !== key) {
+      await releaseSpeech()
+      const m = SPEECH_MODELS[key]
+      const d = sdk[m.constant]
+      if (!d) throw new Error(`This QVAC build has no ${m.constant}`)
+      try {
+        const modelId: string = await sdk.loadModel({
+          modelSrc: d,
+          modelConfig: { language: m.language },
+          onProgress: (p: { percentage?: number }) => onDownload?.(Math.floor(p.percentage ?? 0))
+        })
+        speech = { key, modelId }
+      } catch (err: any) {
+        throw new Error(`Couldn't load the speech model: ${err?.message ?? err}`)
+      }
+    }
+    const started = Date.now()
+    const text = await sdk.transcribe({ modelId: speech!.modelId, audioChunk: toPosix(uri) })
+    return { text: String(text ?? '').trim(), ms: Date.now() - started }
+  })
+  speechQueue = work.catch(() => {})
+  return work
+}
+
 /** Check memory for a preset without downloading it. */
 export async function memoryCheck (preset: PresetKey, ctx = 512): Promise<string[]> {
   const { d } = descriptor(preset)
@@ -49,6 +94,8 @@ export async function memoryCheck (preset: PresetKey, ctx = 512): Promise<string
  */
 export async function trainRun (meta: RunMeta, opts: { preset: PresetKey, epochs: number, resume?: boolean, force?: boolean, onEvent: (e: EngineEvent) => void }): Promise<RunMeta> {
   if (active) throw new Error('Training is already running')
+  await speechQueue
+  await releaseSpeech()
   const presetKey = opts.resume && meta.model ? (Object.keys(PRESETS).find((k) => PRESETS[k as PresetKey].constant === meta.model) as PresetKey ?? opts.preset) : opts.preset
   const { name, d } = descriptor(presetKey)
   const check = checkFinetunable(d)
@@ -131,6 +178,8 @@ async function replyOnce (modelId: string, history: Msg[], onText?: (t: string) 
  */
 export async function compareRun (meta: RunMeta, prompt: string, onUpdate: (r: { base: string, tuned: string, stage: string }) => void) {
   if (!meta.model || !meta.adapter) throw new Error('Train this run first')
+  await speechQueue
+  await releaseSpeech()
   const d = sdk[meta.model]
   const ctx = Math.max(1024, Number((meta.options as any)?.contextLength ?? 512))
   const history = [...(meta.system ? [{ role: 'system', content: meta.system }] : []), { role: 'user', content: prompt }]
