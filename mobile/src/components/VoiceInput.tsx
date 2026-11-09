@@ -14,7 +14,12 @@ import { appendTranscript, audioExtensionOk, AUDIO_EXTENSIONS, MAX_CLIP_BYTES, M
 // Expo's standard preset (44.1 kHz AAC). iOS rejects some custom combinations
 // (AAC at 16 kHz with 64 kbps fails to prepare), and QVAC's decoder resamples
 // to the 16 kHz mono Whisper needs anyway. Three minutes is about 3 MB.
-const RECORDING: RecordingOptions = RecordingPresets.HIGH_QUALITY
+const RECORDING: RecordingOptions = { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }
+
+// Input level in dBFS: silence sits far below this, speech well above it. A
+// clip that never gets louder is silence (most often: the iPhone is being used
+// through iPhone Mirroring, which keeps the phone's microphone off).
+const SILENCE_DB = -50
 
 type Phase = 'idle' | 'preparing' | 'recording' | 'transcribing'
 
@@ -46,6 +51,7 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
   const mounted = useRef(true)
   const starting = useRef(false)
   const recRef = useRef<AudioRecorder | null>(null)
+  const peak = useRef<number | null>(null)
 
   // Declared before useAudioRecorder so this cleanup runs before the hook
   // releases the native recorder: leaving mid-recording throws the clip away.
@@ -60,7 +66,10 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
 
   const recorder = useAudioRecorder(RECORDING)
   recRef.current = recorder
-  const rec = useAudioRecorderState(recorder, 250)
+  const rec = useAudioRecorderState(recorder, 100)
+  if (phase === 'recording' && typeof rec.metering === 'number') {
+    peak.current = Math.max(peak.current ?? -Infinity, rec.metering)
+  }
 
   const busy = phase !== 'idle'
   const working = phase === 'preparing' || phase === 'transcribing'
@@ -94,6 +103,7 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
       if (!perm.granted) throw new Error('Microphone access is off. Turn it on in Settings → Pocket Tune → Microphone.')
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
       await recorder.prepareToRecordAsync()
+      peak.current = null
       recorder.record()
       setPhase('recording')
       limit.current = setTimeout(() => { void stopRecording() }, MAX_CLIP_SECONDS * 1000)
@@ -123,6 +133,11 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
       await setAudioModeAsync({ allowsRecording: false }).catch(() => {})
     }
     if (!recorder.uri) return setPhase('idle')
+    if (peak.current !== null && peak.current < SILENCE_DB) {
+      discard(recorder.uri)
+      setPhase('idle')
+      return setError("The microphone only picked up silence. Speak close to the phone. If you're using iPhone Mirroring on a Mac, the phone's microphone is off while mirrored: use the phone directly.")
+    }
     await transcribe(recorder.uri, seconds, true)
   }
 
@@ -206,7 +221,14 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
         <Text style={s.recText}>{label}</Text>
       </Pressable>
       <Button title='Upload a voice memo' kind='secondary' onPress={() => { void upload() }} disabled={busy} />
-      {phase === 'recording' && <P dim>Recording. It stops on its own after {MAX_CLIP_SECONDS / 60} minutes.</P>}
+      {phase === 'recording' && (
+        <View style={{ gap: 6 }}>
+          <View style={s.meter} accessibilityLabel='Microphone level'>
+            <View style={[s.meterFill, { width: `${level(rec.metering) * 100}%` }]} />
+          </View>
+          <P dim>Recording. It stops on its own after {MAX_CLIP_SECONDS / 60} minutes.</P>
+        </View>
+      )}
       {error && <P color={colors.danger}>{error}</P>}
 
       {transcript !== null && (
@@ -223,6 +245,11 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
       <P dim>Audio is transcribed by QVAC Whisper on this phone and never saved: only the text you add is kept. Spoken emails and numbers may not be recognised as secrets, so check transcripts before training.</P>
     </View>
   )
+}
+
+/** dBFS (-160…0) to 0…1 for the meter, with -60 dB as empty. */
+function level (db: number | undefined) {
+  return typeof db === 'number' ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0
 }
 
 function discard (uri: string) {
@@ -247,5 +274,7 @@ const s = StyleSheet.create({
   recOn: { backgroundColor: '#2A0F12', borderColor: colors.danger },
   dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.danger },
   dotOn: { borderRadius: 3 },
-  recText: { color: colors.text, fontSize: 17, fontWeight: '700' }
+  recText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  meter: { height: 8, borderRadius: 4, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  meterFill: { height: '100%', backgroundColor: colors.accent }
 })
