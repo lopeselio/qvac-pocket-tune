@@ -281,6 +281,36 @@ Gotchas:
 - **Secrets get scrubbed.** Emails, phone numbers, wallet addresses, keys, IBANs, card numbers and seed phrases are replaced with placeholders like `[EMAIL]`. The preview shows them in red, so you can check before training. This is best-effort; see [Caveats](#caveats).
 - **Your text stays local.** The page sends it only to the Pocket Tune process on your machine (127.0.0.1). Nothing goes online.
 
+#### Sharing an adapter peer-to-peer
+
+The **4 · Share** tab publishes a trained run's adapter and its card through [qvac-seed](https://github.com/lopeselio/qvac-seed) and keeps seeding them while the UI runs:
+
+- **Links:** you get a `pear://` link to copy. The tab shows how many peers are connected, and you can stop or start seeding.
+- **System prompt:** a checkbox shares it too, so the other person gets the same voice. The prompt is shown in full, so you see exactly what goes out.
+- **Training data:** never included.
+
+**⇣ Receive** (next to *+ New run*) takes a link someone shared:
+
+1. **Look up:** shows what's in it before anything big downloads (size, SHA-256, base model, examples, epochs, validation loss and any shared system prompt).
+2. **Download & verify:** checks the file against the publisher's SHA-256 and saves it as a run that opens on **Compare**.
+
+Received runs show their link and hash on the Data tab, and can't be retrained, because their training data stays with whoever trained them.
+
+To demo it on one computer, run a second Pocket Tune as "the friend", with its own qvac-seed store, port and runs folder:
+
+```bash
+npm start                                   # you: http://127.0.0.1:4322 → pirate → 4 · Share → Publish & seed
+QVAC_SEED_HOME=/tmp/friend-seed npm start -- --port 4323 --runs /tmp/friend-runs
+                                            # the friend: http://127.0.0.1:4323 → ⇣ Receive → paste the link
+```
+
+On a local test both steps took a few seconds over the public Hyperswarm network: finding the publisher took about 2 s and downloading and checking a 20 MB adapter took under 1 s. Received data is untrusted, so:
+
+- **Card:** it's validated before it becomes a run. The base model must be one this QVAC version knows, and only plain numbers and short strings are kept.
+- **Files:** a download that doesn't match the manifest is deleted.
+- **Your IP address:** the peers you connect to can see it.
+- **Trust:** only load adapters from people you trust.
+
 ## Mobile app
 
 [`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files or answer questions out loud (Whisper transcribes on the phone), build a scrubbed dataset, fine-tune on the phone (GPU on Android; CPU on iOS, where QVAC's Metal training step currently aborts) with memory check, pause and resume, then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
