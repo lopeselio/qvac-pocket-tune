@@ -33,9 +33,9 @@ export const STATUS_LABEL: Record<string, string> = {
   UNKNOWN: 'unknown'
 }
 
-export function Card ({ title, aside, children, className = '' }: { title: ReactNode, aside?: ReactNode, children: ReactNode, className?: string }) {
+export function Card ({ title, aside, children, className = '', id }: { title: ReactNode, aside?: ReactNode, children: ReactNode, className?: string, id?: string }) {
   return (
-    <section className={`card ${className}`}>
+    <section className={`card ${className}`} id={id}>
       <header className='card-h'><h2>{title}</h2>{aside}</header>
       <div className='card-b'>{children}</div>
     </section>
