@@ -31,6 +31,7 @@ export interface ServerState {
   device: 'gpu' | 'cpu'
   runsDir: string
   busy: 'training' | 'comparing' | 'transcribing' | null
+  share: { started: boolean, seeding: boolean, peers: number }
   job: Job | null
   chat: { run: string | null, loaded: ('base' | 'tuned')[] }
   stt: { loaded: string | null, download: number | null, maxSeconds: number, models: { id: string, label: string }[] }
@@ -80,7 +81,27 @@ export interface RunDetails {
   curve: Tick[]
   /** Saved comparisons (runs/<name>/compare.jsonl), newest first. */
   history: { at: string, prompt: string, base: string, tuned: string, noThink?: Side[] }[]
+  /** Set when the adapter came from someone else's pear:// link. */
+  received: { url: string, sha256: string, own: boolean, at: string } | null
 }
+
+/** One adapter in your own qvac-seed share collection. */
+export interface ShareLink { name: string, size: number, sha256: string, meta: Record<string, string>, adapterUrl: string, cardUrl: string }
+export interface ShareState { started: boolean, seeding: boolean, peers: number, links: ShareLink[] }
+
+export interface CardSummary {
+  base: string | null
+  mode: 'sft' | 'causal' | null
+  createdAt: string | null
+  trainSamples: number | null
+  epochs: number | null
+  learningRate: number | null
+  valLoss: number | null
+  valAccuracy: number | null
+  trainLoss: number | null
+}
+export interface SharedAdapter { name: string, size: number, sha256: string, url: string, system: string | null, card: CardSummary | null }
+export interface Inspection { key: string, own: boolean, collection: string, updatedAt: string, adapters: SharedAdapter[] }
 
 export interface Source { name: string, text: string, type?: string }
 export interface Example { id: string, label: string, note: string, me: string | null, system: string | null, sources: Source[] }
@@ -112,6 +133,11 @@ export const api = {
   prep: (body: { name: string, sources: Source[], me?: string, system?: string, scrub: boolean, evalFraction: number }) => post<RunDetails>('/api/prep', body),
   train: (body: { run: string, model?: string, epochs?: number, lr?: number, resume?: boolean }) => post<Job>('/api/train', body),
   pause: () => post<Job>('/api/pause', {}),
+  share: () => request<ShareState>('/api/share'),
+  publish: (body: { run: string, name: string, includeSystem: boolean }) => post<ShareState>('/api/share', body),
+  seeding: (on: boolean) => post<ShareState>('/api/share/seeding', { on }),
+  inspect: (url: string) => post<Inspection>('/api/receive/inspect', { url }),
+  receive: (body: { url: string, adapter: string, name: string }) => post<RunDetails & { warnings: string[] }>('/api/receive', body),
   /** Speech-to-text on this machine. `wav` is 16 kHz mono 16-bit WAV. */
   transcribe: (wav: Uint8Array, model: string) => request<{ text: string, ms: number, model: string }>(
     `/api/transcribe?model=${encodeURIComponent(model)}`,
