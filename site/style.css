@@ -1,0 +1,49 @@
+:root {
+  --bg: #f6f7f8; --panel: #ffffff; --panel-2: #f1f3f5; --ink: #14181c; --muted: #5b6570; --line: #e1e5ea;
+  --code: #10161b; --code-ink: #e3e9ee; --shadow: 0 1px 2px rgba(16,24,32,.05), 0 10px 30px rgba(16,24,32,.07);
+  --accent: #0d9488; --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1014; --panel: #151a20; --panel-2: #1b2128; --ink: #e6ebf0; --muted: #98a3ae; --line: #27303a; --code: #0a0d11;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.3); --accent: #2dd4bf; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 0; font-size: 14px; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--ink); }
+nav .links { display: flex; gap: 18px; }
+.hero { padding: 36px 0 28px; display: grid; gap: 14px; }
+.badge { justify-self: start; display: inline-flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 4px 12px; }
+h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); letter-spacing: -.03em; line-height: 1.05; }
+.lead { margin: 0; font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); max-width: 760px; }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; font-size: 15px; text-decoration: none; border-radius: 12px; padding: 11px 18px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+.shot { margin: 8px 0 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); background: var(--panel); }
+.shot img { display: block; width: 100%; height: auto; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
+.card h3 { margin: 0 0 6px; font-size: 17px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+section { padding: 30px 0; }
+h2 { font-size: 26px; letter-spacing: -.01em; margin: 0 0 16px; }
+.pair { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+figure { margin: 0; }
+figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+.phone { max-width: 320px; justify-self: center; }
+pre { margin: 0; background: var(--code); color: var(--code-ink); border-radius: 14px; padding: 16px 18px; overflow-x: auto; font: 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+pre .c { color: #7f8c99; }
+.note { background: var(--accent-soft); border-radius: 12px; padding: 12px 16px; font-size: 15px; }
+ul.facts { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.projects .grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.projects .card { display: flex; flex-direction: column; gap: 10px; }
+.projects .card .tag { align-self: flex-start; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 2px 10px; }
+.projects .card .row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: auto; font-size: 14px; font-weight: 600; }
+.projects .card a { text-decoration: none; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+footer { padding: 30px 0 50px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
