@@ -35,9 +35,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
           let factory = appDelegate.reactNativeFactory else { return }
 
     // A link that cold-launched the app arrives here, not in launchOptions.
+    // Rebuild the launch options React Native's Linking.getInitialURL reads.
     var launchOptions: [UIApplication.LaunchOptionsKey: Any] = [:]
     if let url = connectionOptions.urlContexts.first?.url {
       launchOptions[.url] = url
+    } else if let activity = connectionOptions.userActivities.first {
+      launchOptions[.userActivityDictionary] = [
+        UIApplication.LaunchOptionsKey.userActivityType.rawValue: activity.activityType,
+        "UIApplicationLaunchOptionsUserActivityKey": activity
+      ]
     }
 
     let window = UIWindow(windowScene: windowScene)
