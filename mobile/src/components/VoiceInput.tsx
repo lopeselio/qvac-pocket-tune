@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type RecordingOptions } from 'expo-audio'
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioRecorder, type RecordingOptions } from 'expo-audio'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
 import { isTraining, transcribeFile } from '../engine'
@@ -14,7 +14,7 @@ import { appendTranscript, audioExtensionOk, AUDIO_EXTENSIONS, MAX_CLIP_BYTES, M
 // Whisper works at 16 kHz mono, so record that and keep files small.
 const RECORDING: RecordingOptions = { ...RecordingPresets.HIGH_QUALITY, sampleRate: 16000, numberOfChannels: 1, bitRate: 64000 }
 
-type Phase = 'idle' | 'recording' | 'transcribing'
+type Phase = 'idle' | 'preparing' | 'recording' | 'transcribing'
 
 const LANGS = (Object.keys(SPEECH_MODELS) as SpeechKey[]).map((k) => ({ key: k, label: SPEECH_MODELS[k].label }))
 const MODES: { key: VoiceMode, label: string }[] = [{ key: 'qa', label: 'Answer questions' }, { key: 'notes', label: 'Dictate notes' }]
@@ -24,9 +24,11 @@ interface Props {
   onNote: (text: string) => void
   /** Set once answers or notes were added: a run can't mix Q&A and notes. */
   lockedMode: VoiceMode | null
+  /** The lock comes from the picked files rather than from spoken items. */
+  lockedByFiles?: boolean
 }
 
-export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
+export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = false }: Props) {
   const [chosenMode, setMode] = useState<VoiceMode>('qa')
   const mode = lockedMode ?? chosenMode
   const [qi, setQi] = useState(0)
@@ -38,21 +40,28 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
   const [info, setInfo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const recorder = useAudioRecorder(RECORDING)
-  const rec = useAudioRecorderState(recorder, 250)
   const limit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const mounted = useRef(true)
+  const starting = useRef(false)
+  const recRef = useRef<AudioRecorder | null>(null)
 
+  // Declared before useAudioRecorder so this cleanup runs before the hook
+  // releases the native recorder: leaving mid-recording throws the clip away.
   useEffect(() => () => {
     mounted.current = false
     clearTimeout(limit.current)
-    // Leaving the screen mid-recording throws the clip away.
-    if (recorder.isRecording) {
-      void recorder.stop().then(() => { if (recorder.uri) discard(recorder.uri) }).catch(() => {})
-    }
-  }, [recorder])
+    const r = recRef.current
+    try {
+      if (r?.isRecording) void r.stop().then(() => { if (r.uri) discard(r.uri) }).catch(() => {})
+    } catch {}
+  }, [])
+
+  const recorder = useAudioRecorder(RECORDING)
+  recRef.current = recorder
+  const rec = useAudioRecorderState(recorder, 250)
 
   const busy = phase !== 'idle'
+  const working = phase === 'preparing' || phase === 'transcribing'
 
   async function transcribe (uri: string, seconds: number, temporary: boolean) {
     setError(null)
@@ -74,8 +83,10 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
   }
 
   async function startRecording () {
+    if (phase !== 'idle' || starting.current) return // a double tap starts one recording
     setError(null)
     if (isTraining()) return setError('Training is running. Record when it finishes or after pausing.')
+    starting.current = true
     try {
       const perm = await requestRecordingPermissionsAsync()
       if (!perm.granted) throw new Error('Microphone access is off. Turn it on in Settings → Pocket Tune → Microphone.')
@@ -87,15 +98,25 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
     } catch (err: any) {
       setError(err?.message ?? String(err))
       setPhase('idle')
+    } finally {
+      starting.current = false
     }
   }
 
   async function stopRecording () {
     clearTimeout(limit.current)
-    if (!recorder.isRecording) return
+    // A call, Siri or another app can end the recording first.
+    if (!recorder.isRecording) {
+      setPhase('idle')
+      if (recorder.uri) discard(recorder.uri)
+      return setError('The recording was interrupted. Try again.')
+    }
     const seconds = recorder.getStatus().durationMillis / 1000
     try {
       await recorder.stop()
+    } catch (err: any) {
+      setPhase('idle')
+      return setError(`Couldn't stop the recording: ${err?.message ?? err}`)
     } finally {
       await setAudioModeAsync({ allowsRecording: false }).catch(() => {})
     }
@@ -104,14 +125,28 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
   }
 
   async function upload () {
+    if (phase !== 'idle') return
     setError(null)
     if (isTraining()) return setError('Training is running. Record when it finishes or after pausing.')
-    const res = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true })
-    if (res.canceled) return
-    const a = res.assets[0]
-    if (!audioExtensionOk(a.name)) { discard(a.uri); return setError(`Couldn't read that audio. Use ${AUDIO_EXTENSIONS.map((e) => e.slice(1)).join(', ')} (Voice Memos are m4a).`) }
-    if ((a.size ?? 0) > MAX_CLIP_BYTES) { discard(a.uri); return setError(`That file is too large. Keep clips under ${MAX_CLIP_SECONDS / 60} minutes.`) }
-    await transcribe(a.uri, await durationOf(a.uri), true)
+    let uri: string | null = null
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true })
+      if (res.canceled) return
+      const a = res.assets[0]
+      uri = a.uri
+      if (!audioExtensionOk(a.name)) throw new Error(`Couldn't read that audio. Use ${AUDIO_EXTENSIONS.map((e) => e.slice(1)).join(', ')} (Voice Memos are m4a).`)
+      if ((a.size ?? 0) > MAX_CLIP_BYTES) throw new Error(`That file is too large. Keep clips under ${MAX_CLIP_SECONDS / 60} minutes.`)
+      setPhase('preparing')
+      const seconds = await durationOf(a.uri)
+      // Without a length the 3-minute limit can't be checked, so don't guess.
+      if (!seconds) throw new Error("Couldn't read how long that audio is. Try an m4a or mp3 file.")
+      uri = null // transcribe() owns the file now
+      await transcribe(a.uri, seconds, true)
+    } catch (err: any) {
+      if (mounted.current) { setError(err?.message ?? String(err)); setPhase('idle') }
+    } finally {
+      if (uri) discard(uri)
+    }
   }
 
   function nextQuestion () {
@@ -136,14 +171,16 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
 
   const label = phase === 'recording'
     ? `Stop · ${Math.floor(rec.durationMillis / 1000)}s`
-    : phase === 'transcribing'
+    : phase === 'preparing'
+      ? 'Preparing audio…'
+      : phase === 'transcribing'
       ? (download != null ? `Downloading speech model ${download}%…` : 'Transcribing on this phone…')
       : transcript ? 'Record more' : 'Record'
 
   return (
     <View style={{ gap: 12 }}>
       <Chips options={MODES} value={mode} onChange={(m) => { if (!lockedMode) setMode(m) }} />
-      {lockedMode && <P dim>A run trains on either Q&A or notes, so this one stays on {lockedMode === 'qa' ? 'answering questions' : 'notes'}. Remove what you added to switch.</P>}
+      {lockedMode && <P dim>A run trains on either Q&A or notes, so this one stays on {lockedMode === 'qa' ? 'answering questions' : 'notes'}. {lockedByFiles ? 'That matches the files you picked.' : 'Remove what you added to switch.'}</P>}
       <Chips options={LANGS} value={lang} onChange={(k) => { if (!busy) setLang(k) }} />
 
       {mode === 'qa' && (
@@ -158,10 +195,10 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode }: Props) {
 
       <Pressable
         accessibilityRole='button'
-        accessibilityState={{ disabled: phase === 'transcribing', selected: phase === 'recording' }}
+        accessibilityState={{ disabled: working, selected: phase === 'recording' }}
         onPress={() => { void (phase === 'recording' ? stopRecording() : startRecording()) }}
-        disabled={phase === 'transcribing'}
-        style={({ pressed }) => [s.rec, phase === 'recording' && s.recOn, { opacity: phase === 'transcribing' ? 0.6 : pressed ? 0.85 : 1 }]}
+        disabled={working}
+        style={({ pressed }) => [s.rec, phase === 'recording' && s.recOn, { opacity: working ? 0.6 : pressed ? 0.85 : 1 }]}
       >
         <View style={[s.dot, phase === 'recording' && s.dotOn]} />
         <Text style={s.recText}>{label}</Text>
