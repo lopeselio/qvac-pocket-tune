@@ -39,6 +39,94 @@ QVAC can fine-tune LoRA adapters on laptops and phones (including BitNet models 
 - **Sampling that suits a small tuned model.** `chat` and `compare` use a low temperature, a repeat penalty and a fixed seed. With chat-style defaults a fresh adapter tends to loop ("Matey! Matey! Matey!…"), and a fixed seed makes `compare` reproducible.
 - **An adapter card.** `adapter.json` records the base model (name and sha256), hyperparameters, metrics and dataset hashes. It never contains the data itself.
 
+## Architecture
+
+Three front ends share one core. Everything in the middle runs on your own computer or phone; the network is only used to download a base model once and, if you choose, to share an adapter.
+
+```mermaid
+flowchart TB
+  subgraph IN["Your data"]
+    direction LR
+    F["WhatsApp export · Q&A CSV<br/>chat JSON · notes"]
+    V["Voice<br/>mic or voice memo"]
+  end
+
+  subgraph FE["Front ends"]
+    direction LR
+    CLI["CLI<br/>bin/pocket-tune.js"]
+    WEB["Web UI · React<br/>ui/"] -- "HTTP, 127.0.0.1 only" --> SRV["Local server<br/>src/ui-server.js"]
+    APP["iPhone / Android app<br/>Expo · mobile/"]
+  end
+
+  subgraph CORE["Shared core · src/core.js · also bundled into the app"]
+    direction LR
+    PARSE["Parse<br/>sources.js"] --> SCRUB["Scrub secrets<br/>scrub.js"] --> DS["Build dataset<br/>dataset.js · build.js"]
+    FIT["Model + memory check<br/>models.js · fit.js"]
+  end
+
+  subgraph QV["QVAC SDK, on device"]
+    direction LR
+    STT["transcribe()<br/>Whisper"]
+    FT["finetune()<br/>LoRA training, pause/resume"]
+    GEN["completion()<br/>base, or base + LoRA"]
+    FAB["QVAC Fabric · llama.cpp<br/>Metal · Vulkan · CPU"]
+    FT --- FAB
+    GEN --- FAB
+  end
+
+  RUNS[("runs/#lt;name#gt;/<br/>dataset · checkpoints · loss curve<br/>adapter.gguf · adapter.json · comparisons")]
+  REG[["QVAC model registry<br/>base model, first download only"]]
+  SEED[["qvac-seed<br/>pear:// link over Hyperswarm"]]
+
+  IN --> FE
+  FE <-- "audio / transcript to review" --> STT
+  FE --> CORE
+  DS --> RUNS
+  FIT --> FT
+  RUNS <-- "dataset in · checkpoints and adapter out" --> FT
+  REG -. "download" .-> FT
+  RUNS -- "adapter" --> GEN
+  GEN -- "base vs tuned answers" --> FE
+  RUNS -- "share: adapter only" --> SEED
+```
+
+What happens in one run:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant UI as CLI / Web UI / app
+  participant Core as Core (parse · scrub · dataset)
+  participant Disk as runs/#lt;name#gt;/
+  participant QVAC as QVAC SDK (on device)
+
+  You->>UI: files, pasted text or spoken answers
+  opt Voice
+    UI->>QVAC: transcribe(audio) with Whisper
+    QVAC-->>UI: text, which you check and edit
+  end
+  UI->>Core: build dataset
+  Core->>Core: redact secrets, dedupe, train/eval split
+  Core->>Disk: train.jsonl, eval.jsonl, run.json
+  UI->>QVAC: memory check, then loadModel(base)
+  UI->>QVAC: finetune(train.jsonl)
+  loop every step
+    QVAC-->>UI: loss, accuracy, ETA
+    UI->>Disk: append progress.jsonl
+  end
+  opt Pause
+    You->>UI: Pause / Ctrl+C
+    QVAC->>Disk: checkpoint, resumable later
+  end
+  QVAC->>Disk: adapter.gguf + adapter.json
+  You->>UI: the same question to both models
+  UI->>QVAC: completion() with base, then with base + adapter
+  QVAC-->>UI: two answers, saved to compare.jsonl
+```
+
+Speech works the same way on both: the web UI converts a browser recording to 16 kHz WAV before sending it to the local server, and the app hands its m4a recording straight to QVAC, which decodes it with its own FFmpeg. Only the transcript you add is kept.
+
 ## Install
 
 ```bash
@@ -195,7 +283,7 @@ Gotchas:
 
 ## Mobile app
 
-[`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
+[`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files or answer questions out loud (Whisper transcribes on the phone), build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
 
 ## Library
 
