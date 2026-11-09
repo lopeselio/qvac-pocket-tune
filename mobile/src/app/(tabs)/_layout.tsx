@@ -1,5 +1,6 @@
-import { Tabs } from 'expo-router'
+import { Redirect, Tabs } from 'expo-router'
 import { Text } from 'react-native'
+import { hasOnboarded } from '../../onboarding'
 import { colors } from '../../ui'
 
 function icon (glyph: string) {
@@ -10,6 +11,8 @@ function icon (glyph: string) {
 }
 
 export default function TabsLayout () {
+  // First launch: show the guide before the tabs.
+  if (!hasOnboarded()) return <Redirect href='/onboarding' />
   return (
     <Tabs
       screenOptions={{
