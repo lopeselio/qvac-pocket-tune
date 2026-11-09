@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, type Example, type RunDetails, type RunSummary, type ServerState, type Source } from '../api'
 import { VoiceInput } from './VoiceInput'
+import { baseLabel } from './ShareTab'
 import { Card, Highlighted, Stat } from './common'
 
 const TYPES = [
@@ -203,6 +204,7 @@ export function NewRun ({ examples, runs, state, onCreated }: { examples: Exampl
 }
 
 export function RunData ({ run }: { run: RunDetails }) {
+  if (run.received) return <ReceivedData run={run} />
   const rep = run.prep?.report
   const redactions = Object.entries(rep?.redactions ?? {})
   return (
@@ -246,6 +248,35 @@ export function RunData ({ run }: { run: RunDetails }) {
               : <p className='para' key={i}><Highlighted text={item.text} /></p>
           ))}
         </div>
+      </Card>
+    </div>
+  )
+}
+
+/** A run that came from someone's pear:// link: there's no dataset, only the adapter and its card. */
+function ReceivedData ({ run }: { run: RunDetails }) {
+  const r = run.received!
+  const card = run.card
+  return (
+    <div className='grid two'>
+      <Card title='Received adapter'>
+        <p>This adapter came from a <span className='mono'>pear://</span> link{r.own ? ' you published yourself' : ''}. It was downloaded peer-to-peer and checked against the publisher&apos;s SHA-256.</p>
+        <div className='section'><h3>Link</h3><p className='mono small break'>{r.url}</p></div>
+        <div className='section'><h3>SHA-256</h3><p className='mono small break'>{r.sha256}</p></div>
+        {run.system && <div className='section'><h3>System prompt (shared with it)</h3><p className='quote'>{run.system}</p></div>}
+        <p className='hint'>The training data stays with whoever trained it. Only the adapter and its card were shared.</p>
+      </Card>
+      <Card title='Its card'>
+        {card
+          ? (
+            <div className='stats'>
+              <Stat label='Base model' value={baseLabel(card.base.name)} />
+              <Stat label='Examples' value={card.dataset.train?.samples ?? '–'} />
+              <Stat label='Epochs' value={String(card.hyperparameters.numberOfEpochs ?? '–')} />
+              <Stat label='Val loss' value={card.metrics?.val_loss != null ? card.metrics.val_loss.toFixed(3) : '–'} />
+            </div>
+            )
+          : <p className='hint'>No card.</p>}
       </Card>
     </div>
   )
