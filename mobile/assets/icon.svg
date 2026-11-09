@@ -1,0 +1,33 @@
+<!-- Pocket Tune app icon: a chat bubble holding three tuning sliders.
+     Source for icon.png, adaptive-icon.png, splash-icon.png and favicon.png.
+     The glyph group is reused alone (transparent) for Android and the splash. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1A1A23"/>
+      <stop offset="1" stop-color="#0B0B0F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.46" r="0.5">
+      <stop offset="0" stop-color="#22C55E" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g id="background">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+  </g>
+  <g id="glyph" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M332 240 H692 A110 110 0 0 1 802 350 V570 A110 110 0 0 1 692 680 H440 L290 800 L360 680 H332 A110 110 0 0 1 222 570 V350 A110 110 0 0 1 332 240 Z"
+          fill="#22C55E" fill-opacity="0.08" stroke="#F2F2F7" stroke-width="40"/>
+    <g stroke="#9A9AAD" stroke-width="20">
+      <line x1="392" y1="350" x2="392" y2="570"/>
+      <line x1="512" y1="350" x2="512" y2="570"/>
+      <line x1="632" y1="350" x2="632" y2="570"/>
+    </g>
+    <g fill="#22C55E" stroke="#111117" stroke-width="14">
+      <circle cx="392" cy="505" r="40"/>
+      <circle cx="512" cy="395" r="40"/>
+      <circle cx="632" cy="455" r="40"/>
+    </g>
+  </g>
+</svg>
