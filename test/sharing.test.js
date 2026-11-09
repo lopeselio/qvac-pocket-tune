@@ -68,6 +68,14 @@ test('publish on one peer, inspect and receive on another, verified against the 
   assert.equal(run.system, 'You are Captain Byte.')
   assert.equal(run.options.numberOfEpochs, 8)
   assert.equal(run.received.sha256, a.sha256)
+  // The card on disk is rebuilt from known fields, with the received file's real hash.
+  const card = JSON.parse(await readFile(join(dest, 'adapter.json'), 'utf8'))
+  assert.equal(card.format, 'pocket-tune/adapter@1')
+  assert.equal(card.adapter.size, 4096)
+  assert.equal(card.adapter.sha256, a.sha256)
+  assert.equal(card.dataset.train.samples, 12)
+  // No staging folders are left next to the runs.
+  assert.deepEqual((await (await import('node:fs/promises')).readdir(join(root, 'runs'))).filter((f) => f.startsWith('.')), [])
   await assert.rejects(access(join(dest, 'train.jsonl')), 'training data is never part of a share')
 
   // Same name again: refused, and the existing run is left alone.
@@ -100,6 +108,14 @@ test('cards from peers are validated before they become runs', () => {
   assert.throws(() => parseCard(JSON.stringify({ base: { name: 'QWEN3_600M_INST_Q4' }, mode: 'evil' })), /mode/)
   const { options, metrics } = parseCard(JSON.stringify({ ...CARD, hyperparameters: { numberOfEpochs: 2, 'bad key!': 1, nested: { a: 1 } }, metrics: { val_loss: 1, x: 'str' } }))
   assert.deepEqual(options, { numberOfEpochs: 2, contextLength: 512 })
+  // Anything that later sizes a model load is bounded.
+  assert.equal(parseCard(JSON.stringify({ ...CARD, hyperparameters: { contextLength: 1e9, numberOfEpochs: 1e6, learningRate: 50 } })).options.contextLength, 512)
+  const bounded = parseCard(JSON.stringify({ ...CARD, hyperparameters: { contextLength: 1e9, numberOfEpochs: 1e6, learningRate: 50, loraModules: 'x; rm -rf' } })).options
+  assert.deepEqual(bounded, { contextLength: 512 })
+  // Malformed nested fields are dropped, not passed to the UI.
+  const clean = parseCard(JSON.stringify({ ...CARD, dataset: { train: { samples: { evil: 1 } } }, metrics: 'x' })).card
+  assert.deepEqual(clean.dataset, {})
+  assert.equal(clean.metrics, null)
   assert.deepEqual(metrics, { val_loss: 1 })
   assert.equal(summarizeCard({ base: { name: 1 }, metrics: { val_loss: 'x' } }).base, null)
   assert.equal(summarizeCard(null), null)
