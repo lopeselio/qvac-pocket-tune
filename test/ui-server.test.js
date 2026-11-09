@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createUiServer } from '../src/ui-server.js'
+import { createSharing } from '../src/sharing.js'
 
 const QWEN = { name: 'QWEN3_600M_INST_Q4', registryPath: 'u/Qwen3-0.6B-Q4_0.gguf', sha256Checksum: 'c'.repeat(64) }
 const FAQ = 'question,answer\nhi,ahoy matey\nmail?,write to me at sam@example.com\nbye,fair winds\n'
@@ -550,5 +551,59 @@ test('training unloads the speech model first, to free memory', async (t) => {
     const trainIdx = calls.findIndex((c) => c[0] === 'finetune')
     assert.ok(unloadIdx !== -1 && unloadIdx < trainIdx)
     assert.equal((await call(url + 'api/state')).json().stt.loaded, null)
+  })
+})
+
+test('share and receive endpoints: guards, publishing, and receiving your own link as a run', async (t) => {
+  const storeDir = await mkdtemp(join(tmpdir(), 'pt-ui-seed-'))
+  t.after(() => rm(storeDir, { recursive: true, force: true }))
+  // No bootstrap network needed: receiving your own link reads your own store.
+  const sharing = createSharing({ storeDir, bootstrap: [], timeoutMs: 1000 })
+  const sdk = { QWEN3_600M_INST_Q4: QWEN }
+  await withServer(t, { sharing, loadSdk: async () => sdk }, async (url, ui, runsDir) => {
+    const idle = (await call(url + 'api/share')).json()
+    assert.equal(idle.seeding, false)
+    assert.deepEqual(idle.links, [])
+
+    // A prepared run with no adapter can't be shared.
+    await post(url + 'api/prep', { name: 'draft', sources: [{ name: 'faq.csv', text: FAQ }] })
+    const early = await post(url + 'api/share', { run: 'draft', name: 'draft' })
+    assert.equal(early.status, 409)
+    assert.match(early.json().error, /Train this run first/)
+
+    // A trained run (adapter + card) shares, with the system prompt only on request.
+    const dir = join(runsDir, 'pirate')
+    await mkdir(dir)
+    await writeFile(join(dir, 'trained-lora-adapter.gguf'), Buffer.alloc(2048, 1))
+    await writeFile(join(dir, 'adapter.json'), JSON.stringify({ base: { name: 'QWEN3_600M_INST_Q4', sha256: 'c'.repeat(64) }, mode: 'sft', hyperparameters: { numberOfEpochs: 4, learningRate: 1e-4, contextLength: 512 } }))
+    await writeFile(join(dir, 'run.json'), JSON.stringify({ version: 1, status: 'COMPLETED', model: { spec: 'tiny', name: 'QWEN3_600M_INST_Q4', src: QWEN }, mode: 'sft', system: 'You are Captain Byte.', options: { numberOfEpochs: 4, learningRate: 1e-4, contextLength: 512 } }))
+    assert.equal((await post(url + 'api/share', { run: 'pirate', name: 'Bad Name' })).status, 400)
+    const shared = await post(url + 'api/share', { run: 'pirate', name: 'pirate-voice', includeSystem: true })
+    assert.equal(shared.status, 200, shared.body)
+    const st = shared.json()
+    assert.equal(st.seeding, true)
+    assert.equal(st.links[0].name, 'pirate-voice')
+    assert.equal(st.links[0].meta.system, 'You are Captain Byte.')
+
+    const bad = await post(url + 'api/receive/inspect', { url: 'http://nope' })
+    assert.equal(bad.status, 400)
+    const seen = (await post(url + 'api/receive/inspect', { url: st.links[0].adapterUrl })).json()
+    assert.equal(seen.own, true)
+    assert.equal(seen.adapters[0].card.epochs, 4)
+
+    const got = await post(url + 'api/receive', { url: st.links[0].adapterUrl, adapter: 'pirate-voice', name: 'from-link' })
+    assert.equal(got.status, 200, got.body)
+    const run = got.json()
+    assert.equal(run.name, 'from-link')
+    assert.equal(run.hasAdapter, true)
+    assert.equal(run.status, 'COMPLETED')
+    assert.equal(run.system, 'You are Captain Byte.')
+    assert.equal(run.received.own, true)
+    assert.deepEqual(run.warnings, [])
+    assert.ok((await call(url + 'api/runs')).json().some((r) => r.name === 'from-link' && r.hasAdapter))
+    assert.equal((await post(url + 'api/receive', { url: st.links[0].adapterUrl, adapter: 'pirate-voice', name: 'from-link' })).status, 409)
+
+    const stopped = (await post(url + 'api/share/seeding', { on: false })).json()
+    assert.equal(stopped.seeding, false)
   })
 })

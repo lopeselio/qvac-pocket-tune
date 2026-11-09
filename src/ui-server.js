@@ -8,6 +8,10 @@
 // Host headers (DNS rebinding) and only accepts application/json POSTs, which
 // a cross-site form can't send without a CORS preflight we never answer.
 // Run names are a strict slug, so no request can reach outside the runs dir.
+//
+// Sharing goes through qvac-seed (src/sharing.js): publishing seeds an
+// adapter and its card over Hyperswarm; receiving downloads one, checks it
+// against the publisher's SHA-256 manifest and turns it into a run.
 
 import { createServer } from 'node:http'
 import { appendFile, open, readFile, readdir, stat } from 'node:fs/promises'
@@ -16,7 +20,8 @@ import { dirname, extname, join, resolve, sep } from 'node:path'
 import { prepTexts, PREP_FILE } from './prep.js'
 import { train, compactTick, findAdapter, hasPauseCheckpoint, RUN_FILE, CARD_FILE, PROGRESS_FILE } from './train.js'
 import { loadForChat, reply } from './chat.js'
-import { PRESETS } from './models.js'
+import { PRESETS, resolveModel } from './models.js'
+import { createSharing } from './sharing.js'
 import { describeFit } from './fit.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -115,7 +120,7 @@ const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : undefine
  * @param {'gpu'|'cpu'} [opts.device]
  * @param {(line: string) => void} [opts.log]
  */
-export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(ROOT, 'examples'), uiDir = join(ROOT, 'ui', 'dist'), device = 'gpu', log = () => {} } = {}) {
+export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(ROOT, 'examples'), uiDir = join(ROOT, 'ui', 'dist'), device = 'gpu', log = () => {}, sharing = createSharing() } = {}) {
   const runsRoot = resolve(runsDir)
   const uiRoot = resolve(uiDir)
   let sdkPromise = null
@@ -235,6 +240,8 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       hyper: r.run && { epochs: r.run.options.numberOfEpochs, lr: r.run.options.learningRate },
       resumable: !!r.run && r.run.status !== 'COMPLETED' && (await hasPauseCheckpoint(r.run)),
       card: r.card,
+      /** Set when the adapter came from someone else's pear:// link. */
+      received: r.run?.received ?? null,
       hasAdapter: !!(await findAdapter(dir)),
       preview: await preview(dir, mode),
       curve: await savedCurve(dir),
@@ -494,6 +501,41 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     return work
   }
 
+  // ---------- sharing (qvac-seed) ----------
+
+  async function shareRun (body) {
+    notClosing()
+    const dir = runDir(body.run)
+    const r = await readRun(body.run)
+    if (!r) throw fail(404, `No run named "${body.run}"`)
+    if (job?.run === body.run && training()) throw fail(409, 'This run is training. Share it once it finishes.')
+    if (!r.card || !(await findAdapter(dir))) throw fail(409, 'Train this run first: there is no adapter to share yet.')
+    const name = str(body.name, 63)?.trim().toLowerCase()
+    if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw fail(400, 'Share names use lowercase letters, digits and dashes.')
+    const system = body.includeSystem === true ? (r.prep?.system ?? r.run?.system ?? null) : null
+    return sharing.publish({ runDir: dir, name, system, run: body.run })
+  }
+
+  /** A received card's base model, as this QVAC version knows it. */
+  async function resolveBase (name) {
+    const s = await sdk()
+    let r
+    try { r = resolveModel(name, s) } catch { throw fail(422, `This QVAC version doesn't know the base model ${name}, so the adapter can't be used here.`) }
+    const spec = Object.keys(PRESETS).find((k) => PRESETS[k].constant === name) ?? name
+    return { spec, name: r.name, src: r.modelSrc, sha256: r.modelSrc?.sha256Checksum }
+  }
+
+  async function receiveRun (body) {
+    notClosing()
+    const dir = runDir(body.name)
+    const { warnings } = await sharing.receive({ url: body.url, adapter: body.adapter, dir, resolveBase })
+    return { ...(await runDetails(body.name)), warnings }
+  }
+
+  async function shareState () {
+    return { ...sharing.status(), links: await sharing.links() }
+  }
+
   // ---------- http ----------
 
   function send (res, status, body, type = 'application/json; charset=utf-8', cache = 'no-store') {
@@ -559,6 +601,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
             device,
             runsDir: runsRoot,
             busy: training() ? 'training' : comparing ? 'comparing' : transcribing ? 'transcribing' : null,
+            share: sharing.status(),
             job: publicJob(Math.max(0, Number(url.searchParams.get('since')) || 0)),
             chat: { run: chat.run, loaded: ['base', 'tuned'].filter((s) => chat[s]) },
             stt: { loaded: stt.key, download: stt.download, maxSeconds: MAX_CLIP_SECONDS, models: Object.entries(STT_MODELS).map(([id, m]) => ({ id, label: m.label })) },
@@ -572,6 +615,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           return send(res, 200, await runDetails(name))
         }
         if (p === '/api/examples') return send(res, 200, await examples())
+        if (p === '/api/share') return send(res, 200, await shareState())
         if (!p.startsWith('/api/')) return await staticFile(res, p)
       }
       if (req.method === 'POST') {
@@ -579,6 +623,14 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
         if (p === '/api/train') return send(res, 202, await startTraining(await readJson(req)))
         if (p === '/api/pause') { await readJson(req); return send(res, 200, pause()) }
         if (p === '/api/compare') return await compareStream(req, res)
+        if (p === '/api/share') { await shareRun(await readJson(req)); return send(res, 200, await shareState()) }
+        if (p === '/api/share/seeding') {
+          const body = await readJson(req)
+          if (body.on === true) { notClosing(); await sharing.startSeeding() } else await sharing.stopSeeding()
+          return send(res, 200, await shareState())
+        }
+        if (p === '/api/receive/inspect') return send(res, 200, await sharing.inspect((await readJson(req)).url))
+        if (p === '/api/receive') return send(res, 200, await receiveRun(await readJson(req)))
         if (p === '/api/transcribe') {
           const wav = await readBody(req, 'audio/wav', MAX_AUDIO, `That clip is too long. Keep clips under ${MAX_CLIP_SECONDS / 60} minutes.`)
           return send(res, 200, await transcribeClip(wav, url.searchParams.get('model') ?? 'en'))
@@ -614,6 +666,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
       await chatQueue
       await unloadChat()
       await unloadStt()
+      await sharing.close()
       server.closeAllConnections?.()
       await new Promise((resolve) => server.close(resolve))
     }
