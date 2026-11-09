@@ -9,7 +9,7 @@ import { saveDataset } from '../../runs'
 import { SAMPLE } from '../../sample'
 import { useRuns } from '../../state'
 import { Button, Card, Chips, colors, Field, H1, P, Screen } from '../../ui'
-import { lockedMode, uniqueName, voiceSources, type SpokenAnswer } from '../../voice'
+import { filesMode, lockedMode, uniqueName, voiceSources, type SpokenAnswer } from '../../voice'
 
 type Source = { name: string, text: string }
 type Kind = 'auto' | 'notes' | 'whatsapp' | 'chat-json' | 'qa-csv'
@@ -118,7 +118,8 @@ export default function DataScreen () {
 
       <Card title='Or speak instead'>
         <VoiceInput
-          lockedMode={lockedMode(voiceQA, voiceNotes)}
+          lockedMode={lockedMode(voiceQA, voiceNotes, filesMode(sources, kind === 'auto' ? null : kind))}
+          lockedByFiles={!spoken && filesMode(sources, kind === 'auto' ? null : kind) !== null}
           onAnswer={(q, a) => { ensureName(); setVoiceQA((v) => [...v, { q, a }]) }}
           onNote={(text) => { ensureName(); setVoiceNotes((v) => [...v, text]) }}
         />
