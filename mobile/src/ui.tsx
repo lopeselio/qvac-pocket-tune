@@ -16,7 +16,15 @@ export const colors = {
 export function Screen ({ children }: { children: ReactNode }) {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps='handled'>{children}</ScrollView>
+      {/* Keep the focused field above the keyboard, and let a drag dismiss it. */}
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        keyboardShouldPersistTaps='handled'
+        keyboardDismissMode='interactive'
+        automaticallyAdjustKeyboardInsets
+      >
+        {children}
+      </ScrollView>
     </SafeAreaView>
   )
 }
