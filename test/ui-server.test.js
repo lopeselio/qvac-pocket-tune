@@ -585,6 +585,14 @@ test('share and receive endpoints: guards, publishing, and receiving your own li
     assert.equal(st.links[0].name, 'pirate-voice')
     assert.equal(st.links[0].meta.system, 'You are Captain Byte.')
 
+    // Another run can't take over a share name (and the link people already have).
+    const other = join(runsDir, 'butler')
+    await mkdir(other)
+    for (const f of ['trained-lora-adapter.gguf', 'adapter.json', 'run.json']) await writeFile(join(other, f), await readFile(join(dir, f)))
+    const clash = await post(url + 'api/share', { run: 'butler', name: 'pirate-voice' })
+    assert.equal(clash.status, 409)
+    assert.match(clash.json().error, /share name of run "pirate"/)
+
     const bad = await post(url + 'api/receive/inspect', { url: 'http://nope' })
     assert.equal(bad.status, 400)
     const seen = (await post(url + 'api/receive/inspect', { url: st.links[0].adapterUrl })).json()
