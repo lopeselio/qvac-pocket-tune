@@ -21,7 +21,7 @@ import { prepTexts, PREP_FILE } from './prep.js'
 import { train, compactTick, findAdapter, hasPauseCheckpoint, RUN_FILE, CARD_FILE, PROGRESS_FILE } from './train.js'
 import { loadForChat, reply } from './chat.js'
 import { PRESETS, resolveModel } from './models.js'
-import { createSharing } from './sharing.js'
+import { createSharing, SHARE_NAME } from './sharing.js'
 import { describeFit } from './fit.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -511,7 +511,11 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     if (job?.run === body.run && training()) throw fail(409, 'This run is training. Share it once it finishes.')
     if (!r.card || !(await findAdapter(dir))) throw fail(409, 'Train this run first: there is no adapter to share yet.')
     const name = str(body.name, 63)?.trim().toLowerCase()
-    if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw fail(400, 'Share names use lowercase letters, digits and dashes.')
+    if (!name || !SHARE_NAME.test(name)) throw fail(400, 'Share names use lowercase letters, digits and dashes.')
+    // Re-publishing under a name another run already uses would swap the
+    // adapter behind a link people already have.
+    const owner = (await sharing.links()).find((l) => l.name === name)?.meta?.run
+    if (owner && owner !== body.run) throw fail(409, `"${name}" is already the share name of run "${owner}". Pick another name.`)
     const system = body.includeSystem === true ? (r.prep?.system ?? r.run?.system ?? null) : null
     return sharing.publish({ runDir: dir, name, system, run: body.run })
   }
@@ -521,6 +525,9 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
     const s = await sdk()
     let r
     try { r = resolveModel(name, s) } catch { throw fail(422, `This QVAC version doesn't know the base model ${name}, so the adapter can't be used here.`) }
+    // Only a model QVAC can fine-tune can carry a LoRA from Pocket Tune; this
+    // also rules out cards naming some other SDK export.
+    if (!r.check.ok || typeof r.modelSrc !== 'object') throw fail(422, `${name} isn't a base model Pocket Tune adapters can use: ${r.check.reason ?? 'not a fine-tunable model'}.`)
     const spec = Object.keys(PRESETS).find((k) => PRESETS[k].constant === name) ?? name
     return { spec, name: r.name, src: r.modelSrc, sha256: r.modelSrc?.sha256Checksum }
   }
@@ -615,7 +622,7 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
           return send(res, 200, await runDetails(name))
         }
         if (p === '/api/examples') return send(res, 200, await examples())
-        if (p === '/api/share') return send(res, 200, await shareState())
+        if (p === '/api/share') { notClosing(); return send(res, 200, await shareState()) }
         if (!p.startsWith('/api/')) return await staticFile(res, p)
       }
       if (req.method === 'POST') {
@@ -626,10 +633,11 @@ export function createUiServer ({ loadSdk, runsDir = 'runs', examplesDir = join(
         if (p === '/api/share') { await shareRun(await readJson(req)); return send(res, 200, await shareState()) }
         if (p === '/api/share/seeding') {
           const body = await readJson(req)
-          if (body.on === true) { notClosing(); await sharing.startSeeding() } else await sharing.stopSeeding()
+          notClosing()
+          if (body.on === true) await sharing.startSeeding(); else await sharing.stopSeeding()
           return send(res, 200, await shareState())
         }
-        if (p === '/api/receive/inspect') return send(res, 200, await sharing.inspect((await readJson(req)).url))
+        if (p === '/api/receive/inspect') { const body = await readJson(req); notClosing(); return send(res, 200, await sharing.inspect(body.url)) }
         if (p === '/api/receive') return send(res, 200, await receiveRun(await readJson(req)))
         if (p === '/api/transcribe') {
           const wav = await readBody(req, 'audio/wav', MAX_AUDIO, `That clip is too long. Keep clips under ${MAX_CLIP_SECONDS / 60} minutes.`)
