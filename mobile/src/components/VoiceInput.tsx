@@ -102,7 +102,10 @@ export function VoiceInput ({ onAnswer, onNote, lockedMode, lockedByFiles = fals
       const perm = await requestRecordingPermissionsAsync()
       if (!perm.granted) throw new Error('Microphone access is off. Turn it on in Settings → Pocket Tune → Microphone.')
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
-      await recorder.prepareToRecordAsync()
+      // Pass the options so expo-audio creates a fresh AVAudioRecorder now that
+      // the session allows recording. Without them it reuses the recorder made
+      // at mount under a playback-only session, which records silence on iOS.
+      await recorder.prepareToRecordAsync(RECORDING)
       peak.current = null
       recorder.record()
       setPhase('recording')
