@@ -29,7 +29,7 @@ const PAGES: Page[] = [
     title: 'Three steps',
     lead: 'The tabs at the bottom follow the same order.',
     points: [
-      { glyph: '▤', title: 'Data', text: 'Pick a WhatsApp chat export, a Q&A CSV or notes. No data handy? Tap Use sample.' },
+      { glyph: '▤', title: 'Data', text: 'Pick a WhatsApp chat export, a Q&A CSV or notes, or answer questions out loud. No data handy? Tap Use sample.' },
       { glyph: '◎', title: 'Train', text: 'Your phone trains a small add-on (a LoRA adapter) on top of the model. You can pause and resume.' },
       { glyph: '✦', title: 'Try', text: 'Ask the original model and your tuned one the same question and compare the answers.' }
     ]
