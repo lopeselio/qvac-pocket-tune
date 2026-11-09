@@ -285,6 +285,10 @@ Gotchas:
 
 [`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files or answer questions out loud (Whisper transcribes on the phone), build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
 
+![Pocket Tune mobile: first-run guide, answering questions out loud, checking the transcript, training on the phone, and comparing the base and tuned models](docs/mobile/screens.png)
+
+*Mockups of the app's screens, drawn from its real components and wording (source: [docs/mobile/mockups.html](docs/mobile/mockups.html)); the run numbers are illustrative and the answers are the CLI's real output shown above.*
+
 ## Library
 
 The parsing, scrubbing, dataset and fine-tune-option code has no Node built-ins and is exported separately as `qvac-pocket-tune/core`, which the mobile app bundles.
