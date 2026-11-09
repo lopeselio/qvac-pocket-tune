@@ -304,10 +304,22 @@ QVAC_SEED_HOME=/tmp/friend-seed npm start -- --port 4323 --runs /tmp/friend-runs
                                             # the friend: http://127.0.0.1:4323 → ⇣ Receive → paste the link
 ```
 
-On a local test both steps took a few seconds over the public Hyperswarm network: finding the publisher took about 2 s and downloading and checking a 20 MB adapter took under 1 s. Received data is untrusted, so:
+Results, measured with two Pocket Tune servers (separate qvac-seed stores) on one Mac, over the public Hyperswarm network, sharing the 20 MB pirate adapter (Qwen3 0.6B):
 
-- **Card:** it's validated before it becomes a run. The base model must be one this QVAC version knows, and only plain numbers and short strings are kept.
-- **Files:** a download that doesn't match the manifest is deleted.
+- **No server or cloud in between.** The two Pocket Tunes find each other through the Hyperswarm DHT and connect directly. Connections are Noise-encrypted and hole-punched, so no account, upload or hosting is involved.
+- **Fast enough to feel instant.**
+  - Looking up a link and finding the publisher took 1.7–2.1 s.
+  - Downloading and checking the 20 MB adapter took 0.3 s.
+- **Live seeding status.** The publisher's Share tab showed the receiver as a connected peer ("Seeding · 1 peer").
+- **Verified before use.** The adapter was checked against the SHA-256 in the publisher's manifest before it was saved. The received run records the hash of the bytes actually downloaded.
+- **Only the adapter travels.** The receiver got the adapter, its card and the optional system prompt, never the training data. Its run can be compared but not retrained.
+- **The received adapter works.** Compare on the receiving side loaded the shared adapter on the same base model and answered with real QVAC.
+
+Received data is untrusted, so:
+
+- **Card:** it's validated and rebuilt from known fields before it becomes a run. The base model must be a fine-tunable model this QVAC version knows. Settings that size a model load are bounded, for example a context length between 64 and 8192.
+- **Files:** downloads go to a hidden staging folder and become a run only when everything checks out. A mismatch, a timeout or an unknown base leaves nothing behind.
+- **Share names:** a name used by one run can't be taken over by another, so an existing link keeps serving the same adapter.
 - **Your IP address:** the peers you connect to can see it.
 - **Trust:** only load adapters from people you trust.
 
