@@ -195,7 +195,7 @@ Gotchas:
 
 ## Mobile app
 
-[`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone's GPU (with memory check, pause and resume), then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
+[`mobile/`](mobile/) is an Expo app with the same flow on a phone: pick files, build a scrubbed dataset, fine-tune on the phone (GPU on Android; CPU on iOS, where QVAC's Metal training step currently aborts) with memory check, pause and resume, then compare the base and adapted answers. It bundles the same core module as the CLI. QVAC needs a physical device; see [mobile/README.md](mobile/README.md).
 
 ## Library
 
