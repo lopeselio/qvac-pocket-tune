@@ -13,7 +13,9 @@
 
 const fs = require('fs')
 const path = require('path')
-const { withAppDelegate, withDangerousMod, withInfoPlist, withXcodeProject, IOSConfig } = require('@expo/config-plugins')
+// Loaded on use, so tests can import the constants below without mobile/'s
+// node_modules (the root test run picks up mobile/test too).
+const plugins = () => require('@expo/config-plugins')
 
 const FILE = 'SceneDelegate.swift'
 
@@ -71,6 +73,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 const WINDOW_BLOCK = /#if os\(iOS\) \|\| os\(tvOS\)\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\s*factory\.startReactNative\([\s\S]*?\)\s*#endif\n?/
 
 function withSceneManifest (config) {
+  const { withInfoPlist } = plugins()
   return withInfoPlist(config, (cfg) => {
     cfg.modResults.UIApplicationSceneManifest = {
       UIApplicationSupportsMultipleScenes: false,
@@ -86,6 +89,7 @@ function withSceneManifest (config) {
 }
 
 function withoutAppDelegateWindow (config) {
+  const { withAppDelegate } = plugins()
   return withAppDelegate(config, (cfg) => {
     if (cfg.modResults.language !== 'swift') throw new Error('with-ios-scene-lifecycle: expected a Swift AppDelegate')
     const src = cfg.modResults.contents
@@ -99,6 +103,7 @@ function withoutAppDelegateWindow (config) {
 }
 
 function withSceneDelegateFile (config) {
+  const { withDangerousMod, withXcodeProject, IOSConfig } = plugins()
   config = withDangerousMod(config, ['ios', async (cfg) => {
     const dir = path.join(cfg.modRequest.platformProjectRoot, cfg.modRequest.projectName)
     fs.writeFileSync(path.join(dir, FILE), SCENE_DELEGATE)
