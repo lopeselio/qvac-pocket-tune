@@ -152,10 +152,11 @@ export function App () {
             <span className='tab-meta'><StatusDot status={job?.run === run.name ? job.status : run.status} />{STATUS_LABEL[job?.run === run.name && isActive(job.status) ? job.status : run.status]}</span>
           </div>
           <div role='tabpanel'>
+            {tabDisabled(tab, run) && <p className='muted'>{tabDisabled(tab, run)}.</p>}
             {tab === 'data' && <RunData run={run} />}
-            {tab === 'train' && <TrainTab run={run} state={state} ticks={ticks} toast={toast} onChanged={() => { refresh(); loadDetails(run.name); void loadRuns() }} onCompare={() => setTab('compare')} />}
-            {tab === 'compare' && <CompareTab run={run} state={state} onSaved={() => loadDetails(run.name)} />}
-            {tab === 'share' && <ShareTab run={run} toast={toast} />}
+            {tab === 'train' && !tabDisabled(tab, run) && <TrainTab run={run} state={state} ticks={ticks} toast={toast} onChanged={() => { refresh(); loadDetails(run.name); void loadRuns() }} onCompare={() => setTab('compare')} />}
+            {tab === 'compare' && !tabDisabled(tab, run) && <CompareTab run={run} state={state} onSaved={() => loadDetails(run.name)} />}
+            {tab === 'share' && !tabDisabled(tab, run) && <ShareTab key={run.name} run={run} toast={toast} />}
           </div>
         </>
       )}
