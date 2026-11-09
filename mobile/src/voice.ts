@@ -2,6 +2,8 @@
 // under plain Node in tests). Mirrors ui/src/components/{VoiceInput,DataTab}.tsx
 // so the phone and the web UI build the same datasets from speech.
 
+import { detectSourceType } from '../../src/sources.js'
+
 /** Open questions that draw out how you talk. Same list as the web UI. */
 export const QUESTIONS = [
   'What do you do for work?',
@@ -58,6 +60,18 @@ export function uniqueName (base: string, taken: string[]): string {
   for (let i = 2; ; i++) if (!set.has(`${base}-${i}`)) return `${base}-${i}`
 }
 
-export function lockedMode (qa: SpokenAnswer[], notes: string[]): VoiceMode | null {
-  return qa.length ? 'qa' : notes.length ? 'notes' : null
+/**
+ * The dataset mode picked files commit the run to, using the same type rules
+ * as the dataset builder. A run trains on notes or on chats/Q&A, never both.
+ */
+export function filesMode (files: { name: string }[], override: string | null): VoiceMode | null {
+  for (const f of files) {
+    const kind = override ?? detectSourceType(f.name)
+    if (kind) return kind === 'notes' ? 'notes' : 'qa'
+  }
+  return null
+}
+
+export function lockedMode (qa: SpokenAnswer[], notes: string[], fromFiles: VoiceMode | null = null): VoiceMode | null {
+  return qa.length ? 'qa' : notes.length ? 'notes' : fromFiles
 }
