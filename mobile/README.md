@@ -26,6 +26,14 @@ npx expo run:android --device   # or: npx expo run:ios --device
 
 Run `npx expo prebuild` again after any `npm install`, because reinstalling clears the linked addons. `ios/` and `android/` are generated (Continuous Native Generation), so configure native behaviour in `app.json` instead of editing them.
 
+### Xcode 27 and the UIScene life cycle
+
+Apps built with the iOS 27 SDK must use UIKit's scene life cycle, or they stop at launch with "UIScene life cycle is required for apps built with this SDK" (in Xcode: `EXC_BREAKPOINT` on Thread 1, frozen on the splash). Expo SDK 54's template creates its window in the app delegate, so `plugins/with-ios-scene-lifecycle.js` adds a `SceneDelegate` at prebuild and moves the window there. Expo SDK 58 does this itself; remove the plugin when upgrading.
+
+### Installing on an iPhone with a free Apple ID
+
+Open `ios/PocketTune.xcworkspace`, pick your Personal Team under Signing & Capabilities, choose your iPhone and the **Release** configuration (Debug expects `npx expo start` running), then ⌘R. Trust the developer profile on the phone under Settings → General → VPN & Device Management. Free provisioning expires after 7 days; build again to renew. `prebuild --clean` resets the team, so set it again after one.
+
 ## Checks
 
 ```bash
