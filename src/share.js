@@ -6,9 +6,11 @@ import { CARD_FILE, findAdapter } from './train.js'
  * Publish an adapter + its card into a qvac-seed collection. Returns the
  * pear:// links; the caller decides whether to keep seeding.
  * Only the adapter and card are published, never the training data.
- * @param {{ runDir: string, name: string, seed: typeof import('qvac-seed'), store?: any }} p
+ * `extraMeta` adds string fields to both manifest entries (the web UI uses it
+ * to share the system prompt when the user ticks that box).
+ * @param {{ runDir: string, name: string, seed: typeof import('qvac-seed'), store?: any, extraMeta?: Record<string, string> }} p
  */
-export async function shareAdapter ({ runDir, name, seed, store }) {
+export async function shareAdapter ({ runDir, name, seed, store, extraMeta = {} }) {
   runDir = resolve(runDir)
   const adapter = await findAdapter(runDir)
   if (!adapter) throw new Error(`No adapter in ${runDir} to share. Train first.`)
@@ -21,7 +23,8 @@ export async function shareAdapter ({ runDir, name, seed, store }) {
     base: card.base.name,
     ...(card.base.sha256 ? { baseSha256: card.base.sha256 } : {}),
     mode: card.mode,
-    tool: 'pocket-tune'
+    tool: 'pocket-tune',
+    ...extraMeta
   }
   const a = await seed.publishFile(drive, adapter, { as: `${name}/adapter.gguf`, meta })
   const c = await seed.publishFile(drive, join(runDir, CARD_FILE), { as: `${name}/adapter.json`, meta })
