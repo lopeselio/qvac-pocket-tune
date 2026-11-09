@@ -296,6 +296,14 @@ The **4 · Share** tab publishes a trained run's adapter and its card through [q
 
 Received runs show their link and hash on the Data tab, and can't be retrained, because their training data stays with whoever trained them.
 
+| Publisher: seeding over Hyperswarm | Receiver: looking up a `pear://` link |
+|---|---|
+| ![Share tab: the pirate-voice adapter published with its pear:// links, "Seeding · 1 peer"](docs/sharing/share-seeding.png) | ![Receive card: the link's adapter listed with size, SHA-256, base model, examples, epochs, validation loss and the shared system prompt](docs/sharing/receive-lookup.png) |
+
+![Compare on the receiving side: the base model's answer next to the received pirate-voice adapter's answer](docs/sharing/compare-received.png)
+
+*Screenshots from two Pocket Tune servers on one Mac sharing the pirate adapter over the public Hyperswarm network: the publisher seeding to one connected peer, the receiver's lookup before download, and Compare on the received adapter with real QVAC output.*
+
 To demo it on one computer, run a second Pocket Tune as "the friend", with its own qvac-seed store, port and runs folder:
 
 ```bash
