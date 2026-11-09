@@ -1,0 +1,216 @@
+<!doctype html>
+<!--
+  Mockups of the Pocket Tune mobile app for the README. They copy the app's
+  real styles (mobile/src/ui.tsx), screens and wording; the run data is
+  illustrative. Regenerate docs/mobile/screens.png with headless Chrome:
+    "Google Chrome" --headless=new --hide-scrollbars --force-device-scale-factor=2 \
+      --window-size=2080,900 --screenshot=docs/mobile/screens.png docs/mobile/mockups.html
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pocket Tune mockups</title>
+<style>
+  :root {
+    --bg: #0B0B0F; --card: #15151C; --border: #262633; --text: #F2F2F7;
+    --dim: #9A9AAD; --accent: #22C55E; --danger: #EF4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0d1117; }
+  body {
+    width: 2080px; height: 900px; padding: 40px 40px 0;
+    font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+    display: flex; gap: 32px; justify-content: center;
+  }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  figcaption { color: #c9d1d9; font: 600 20px -apple-system, system-ui; }
+  figcaption b { color: var(--accent); }
+
+  .phone {
+    width: 376px; height: 800px; border-radius: 56px; padding: 12px;
+    background: #1c1c22; box-shadow: 0 0 0 2px #2c2c34, 0 20px 50px rgba(0,0,0,.5);
+  }
+  .screen {
+    position: relative; width: 100%; height: 100%; border-radius: 44px; overflow: hidden;
+    background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+  }
+  .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 110px; height: 32px; border-radius: 20px; background: #000; z-index: 2; }
+  .status { height: 50px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 30px 0 34px; font: 600 15px -apple-system, system-ui; }
+  .status .r { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  .bat { width: 24px; height: 12px; border: 1.5px solid var(--text); border-radius: 3px; padding: 1px; }
+  .bat i { display: block; height: 100%; width: 80%; background: var(--text); border-radius: 1px; }
+
+  .scroll { flex: 1; overflow: hidden; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 700; }
+  p { margin: 0; font-size: 13.5px; line-height: 19px; }
+  .dim { color: var(--dim); }
+  .acc { color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+  .ct { color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; }
+  .btn { min-height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; background: var(--border); color: var(--text); padding: 0 14px; }
+  .btn.pri { background: var(--accent); color: #04130A; }
+  .btn.dan { background: var(--danger); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 6px 11px; font-size: 13px; }
+  .chip.on { border-color: var(--accent); background: #0F2A1A; color: var(--accent); }
+  .label { color: var(--dim); font-size: 12px; }
+  .input { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; font-size: 13.5px; line-height: 19px; }
+  .rec { min-height: 50px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 700; font-size: 16px; background: #0F2A1A; border: 1px solid var(--accent); }
+  .rec.on { background: #2A0F12; border-color: var(--danger); }
+  .rec .d { width: 13px; height: 13px; border-radius: 7px; background: var(--danger); }
+  .rec.on .d { border-radius: 3px; }
+  .meter { height: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .spoken { border-top: 1px solid var(--border); padding-top: 9px; display: flex; gap: 10px; }
+  .spoken b { font-size: 13px; }
+  .spoken .t { color: var(--dim); font-size: 13px; line-height: 18px; }
+  .spoken .tag { color: var(--accent); font-size: 11px; }
+  .x { color: var(--dim); font-size: 20px; line-height: 20px; }
+
+  .tabs { flex: none; height: 78px; background: var(--card); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding-top: 8px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--dim); font-size: 10.5px; font-weight: 600; }
+  .tab span { font-size: 17px; }
+  .tab.on { color: var(--accent); }
+
+  /* onboarding */
+  .ob { flex: 1; display: flex; flex-direction: column; padding: 0 22px 18px; }
+  .skip { align-self: flex-end; color: var(--dim); font-weight: 600; font-size: 15px; padding: 8px 0 0; }
+  .welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding-bottom: 30px; }
+  .welcome img { width: 120px; height: 120px; border-radius: 27px; margin-bottom: 8px; }
+  .brand { font-size: 31px; font-weight: 800; letter-spacing: -.5px; }
+  .lead { color: var(--dim); font-size: 16px; line-height: 23px; }
+  .dots { display: flex; justify-content: center; gap: 7px; margin-bottom: 16px; }
+  .dots i { width: 8px; height: 8px; border-radius: 4px; background: var(--border); }
+  .dots i.on { width: 22px; background: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- 1 · first run -->
+<figure>
+  <div class="phone"><div class="screen">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r">5G <span class="bat"><i></i></span></span></div>
+    <div class="ob">
+      <div class="skip">Skip</div>
+      <div class="welcome">
+        <img src="../../mobile/assets/icon.png" alt="">
+        <div class="brand">Pocket Tune</div>
+        <div class="lead">Teach a small AI to talk like you, from your own chats and notes. It all happens on this phone.</div>
+      </div>
+      <div class="dots"><i class="on"></i><i></i><i></i><i></i></div>
+      <div class="btn pri">Next</div>
+    </div>
+  </div></div>
+  <figcaption><b>1</b> · First-run guide</figcaption>
+</figure>
+
+<!-- 2 · speak -->
+<figure>
+  <div class="phone"><div class="screen">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r">5G <span class="bat"><i></i></span></span></div>
+    <div class="scroll">
+      <div class="card">
+        <div class="ct">Or speak instead</div>
+        <div class="chips"><span class="chip on">Answer questions</span><span class="chip">Dictate notes</span></div>
+        <div class="chips"><span class="chip on">English</span><span class="chip">Other languages</span></div>
+        <div class="label">Answer this out loud, the way you'd say it</div>
+        <div class="row"><div class="input grow">How do you stay focused?</div><div class="btn" style="width:92px">Another</div></div>
+        <div class="rec on"><span class="d"></span>Stop · 7s</div>
+        <div class="meter"><i style="width:62%"></i></div>
+        <p class="dim">Recording. It stops on its own after 3 minutes.</p>
+        <div class="btn" style="opacity:.4">Upload a voice memo</div>
+        <p class="dim">Audio is transcribed by QVAC Whisper on this phone and never saved: only the text you add is kept.</p>
+      </div>
+    </div>
+    <div class="tabs"><div class="tab on"><span>▤</span>Data</div><div class="tab"><span>◎</span>Train</div><div class="tab"><span>✦</span>Try</div></div>
+  </div></div>
+  <figcaption><b>2</b> · Answer out loud</figcaption>
+</figure>
+
+<!-- 3 · transcript -->
+<figure>
+  <div class="phone"><div class="screen">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r">5G <span class="bat"><i></i></span></span></div>
+    <div class="scroll">
+      <div class="card">
+        <div class="ct">Or speak instead</div>
+        <div class="rec"><span class="d"></span>Record more</div>
+        <div class="label">Transcript (edit anything it misheard)</div>
+        <div class="input" style="min-height:96px">Honestly, I close Slack, put my phone in another room and work in fifty-minute blocks with a short walk in between.</div>
+        <p class="dim">6.8 s of audio, transcribed on this phone in 0.9 s</p>
+        <div class="row"><div class="btn pri grow">Add answer</div><div class="btn grow">Discard</div></div>
+        <div class="spoken"><div class="grow"><b>What do you do for work?</b><div class="t">I build small AI tools that run on your own devices, so nothing leaves your phone.</div><div class="tag">spoken answer</div></div><span class="x">×</span></div>
+        <div class="spoken"><div class="grow"><b>What does a good weekend look like for you?</b><div class="t">A long run on Saturday, then cooking something new with friends.</div><div class="tag">spoken answer</div></div><span class="x">×</span></div>
+        <p class="dim">2 spoken answers. Around 20 or more starts to give a recognisable voice.</p>
+      </div>
+    </div>
+    <div class="tabs"><div class="tab on"><span>▤</span>Data</div><div class="tab"><span>◎</span>Train</div><div class="tab"><span>✦</span>Try</div></div>
+  </div></div>
+  <figcaption><b>3</b> · Check the transcript</figcaption>
+</figure>
+
+<!-- 4 · train -->
+<figure>
+  <div class="phone"><div class="screen">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r">5G <span class="bat"><i></i></span></span></div>
+    <div class="scroll">
+      <h1>Train “pirate-voice”</h1>
+      <p class="dim">Conversations (SFT) · status: RUNNING</p>
+      <div class="card">
+        <div class="ct">Base model</div>
+        <div class="chips"><span class="chip on">Qwen3 0.6B</span><span class="chip">Qwen3 1.7B</span><span class="chip">BitNet b1.58 0.7B</span><span class="chip">BitNet b1.58 1B</span></div>
+        <p class="dim">Qwen3 0.6B (Q4_0, 382 MB)</p>
+      </div>
+      <div class="card">
+        <div class="ct">Epochs</div>
+        <div class="row"><div class="btn" style="width:50px">−</div><p>8</p><div class="btn" style="width:50px">+</div><p class="dim">small datasets need more</p></div>
+      </div>
+      <div class="btn dan">Pause</div>
+      <div class="card">
+        <div class="ct">Progress</div>
+        <div class="bar"><i style="width:46%"></i></div>
+        <p>epoch 4 · train batch 3/6</p>
+        <p class="dim">loss 1.284 · accuracy 0.712 · ~94s left</p>
+        <p class="dim">Keep the app open; the screen stays awake while training.</p>
+      </div>
+    </div>
+    <div class="tabs"><div class="tab"><span>▤</span>Data</div><div class="tab on"><span>◎</span>Train</div><div class="tab"><span>✦</span>Try</div></div>
+  </div></div>
+  <figcaption><b>4</b> · Train on the phone</figcaption>
+</figure>
+
+<!-- 5 · try -->
+<figure>
+  <div class="phone"><div class="screen">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r">5G <span class="bat"><i></i></span></span></div>
+    <div class="scroll">
+      <h1>Base vs. you</h1>
+      <p class="dim">Same prompt, same base model; the second answer uses your adapter.</p>
+      <div class="label">Prompt</div>
+      <div class="input">How do I learn to cook?</div>
+      <div class="btn pri">Compare</div>
+      <div class="card">
+        <div class="ct">Base model</div>
+        <p>Start with simple recipes, use basic ingredients, and practice regularly. Explore different cuisines to expand your skills, and don’t hesitate to experiment with flavors!</p>
+      </div>
+      <div class="card">
+        <div class="ct">With your adapter</div>
+        <p class="acc">Start with the basics, matey! Ye can’t sail a ship without first learning how to read the sea. Arr!</p>
+      </div>
+    </div>
+    <div class="tabs"><div class="tab"><span>▤</span>Data</div><div class="tab"><span>◎</span>Train</div><div class="tab on"><span>✦</span>Try</div></div>
+  </div></div>
+  <figcaption><b>5</b> · Compare base and tuned</figcaption>
+</figure>
+
+</body>
+</html>
