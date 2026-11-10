@@ -1,6 +1,6 @@
 {
   "name": "qvac-pocket-tune",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fine-tune a personal LoRA adapter on your own notes and chats, entirely on-device with Tether QVAC, and share it peer-to-peer.",
   "type": "module",
   "main": "./src/index.js",
